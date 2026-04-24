@@ -1,0 +1,124 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ti-seeg"
+version = "0.1.0"
+description = "SEEG analysis pipeline for temporal interference stimulation studies"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Evan Brady" }]
+keywords = ["seeg", "ieeg", "mne", "temporal-interference", "bids", "neuroscience"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+dependencies = [
+    "mne>=1.7",
+    "mne-bids>=0.14",
+    "mne-connectivity>=0.7",
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+    "nibabel>=5.0",
+    "pybids>=0.16",
+    "h5py>=3.9",
+    "pyyaml>=6.0",
+    "pydantic>=2.5",
+    "tqdm>=4.65",
+    "click>=8.1",
+    "joblib>=1.3",
+    "nilearn>=0.10",
+    "seaborn>=0.12",
+]
+
+[project.optional-dependencies]
+notebooks = ["jupyterlab>=4.0", "ipywidgets>=8.1"]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.5",
+    "mypy>=1.8",
+    "pre-commit>=3.5",
+    "types-PyYAML",
+    "pandas-stubs",
+]
+
+[project.scripts]
+ti-seeg = "ti_seeg.cli:main"
+
+[project.urls]
+Repository = "https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ti_seeg"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",  # pycodestyle / pyflakes
+    "I",            # isort
+    "B",            # bugbear
+    "UP",           # pyupgrade
+    "SIM",          # simplify
+    "NPY",          # numpy
+    "PD",           # pandas-vet
+]
+ignore = [
+    "E501",  # line length (handled by formatter)
+    "PD901", # "df" is a bad name (fine for us)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B", "SIM"]
+"notebooks/*" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.10"
+strict = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+ignore_missing_imports = true
+files = ["src/ti_seeg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+filterwarnings = [
+    "ignore::DeprecationWarning:mne.*",
+    "ignore::FutureWarning",
+]
+
+[tool.coverage.run]
+source = ["src/ti_seeg"]
+branch = true
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.5",
+    "mypy>=1.8",
+    "pre-commit>=3.5",
+    "types-PyYAML",
+    "pandas-stubs",
+]

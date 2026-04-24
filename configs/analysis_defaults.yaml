@@ -1,0 +1,109 @@
+# Default parameters for every analysis module.
+# Per-subject configs inherit from this and override as needed.
+
+preprocessing:
+  line_freq: 60.0                  # US; set to 50.0 for EU recordings
+  line_harmonics: 6                # notch at line_freq * [1..N] up to Nyquist
+  carrier_harmonics: 4             # notch at carrier * [1..N]
+  notch_width_hz: 2.0              # width of each notch
+  bandpass: [0.5, null]            # [hp, lp]; null lp means 0.45 * fs
+  reference: bipolar               # bipolar | car | monopolar
+  bad_channel_strategy:
+    method: variance_kurtosis      # variance_kurtosis | manual | none
+    variance_z_thresh: 5.0
+    kurtosis_z_thresh: 5.0
+    flat_thresh_uv: 0.5
+
+events:
+  # Map raw event labels (as they appear in events.tsv 'trial_type') to
+  # canonical condition names used internally by the pipeline.
+  label_map:
+    baseline: baseline
+    rest: baseline
+    stim_test: stim_test
+    test_stim: stim_test
+    active_stim: active_stim
+    stim_on: active_stim
+    no_stim: no_stim
+    stim_off: no_stim
+  epoch_window:
+    active_stim: [-1.0, 10.0]      # tmin, tmax (s) around event onset
+    no_stim: [-1.0, 10.0]
+    stim_test: [-0.5, 2.0]
+    baseline: [0.0, 10.0]
+  sliding:
+    window_sec: 2.0
+    overlap: 0.5
+
+spectral:
+  enabled: true
+  method: multitaper               # multitaper | welch
+  fmin: 1.0
+  fmax: 200.0
+  bandwidth_hz: 2.0                # multitaper bandwidth
+  bands:
+    delta: [1, 4]
+    theta: [4, 8]
+    alpha: [8, 13]
+    beta: [13, 30]
+    low_gamma: [30, 80]
+    high_gamma: [80, 200]
+  contrasts:
+    - [active_stim, no_stim]
+    - [active_stim, baseline]
+
+tfr:
+  enabled: true
+  method: morlet                   # morlet | multitaper
+  fmin: 2.0
+  fmax: 200.0
+  n_freqs: 40
+  freq_scale: log
+  n_cycles_rule: "freqs / 2"       # either a constant or 'freqs / N'
+  baseline:
+    tmin: -1.0
+    tmax: -0.1
+    mode: logratio                 # logratio | zscore | percent
+
+phase:
+  enabled: true
+  envelope:
+    bandwidth_hz: 2.0              # half-width of bandpass around f_env
+  entrainment:
+    n_surrogates: 200
+    surrogate_method: time_shift
+  cfc:
+    enabled: true
+    phase_band: [4, 8]             # theta by default; overridden per-block
+    amp_bands:
+      - [30, 80]                   # low gamma
+      - [80, 150]                  # high gamma
+    method: tort                   # tort | mean_vector
+    n_bins: 18
+
+connectivity:
+  enabled: true
+  method: [coh, wpli, plv]
+  bands:
+    theta: [4, 8]
+    low_gamma: [30, 80]
+    high_gamma: [80, 150]
+  within_roi: true
+  between_roi: true
+
+stats:
+  enabled: true
+  cluster_alpha: 0.05
+  n_permutations: 1000
+  tail: 0
+
+report:
+  enabled: true
+  include_sections:
+    - qc
+    - anatomy
+    - spectral
+    - tfr
+    - phase
+    - connectivity
+    - stats

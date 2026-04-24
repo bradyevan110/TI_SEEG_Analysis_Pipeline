@@ -1,0 +1,36 @@
+# Per-subject config. Inherits from analysis_defaults.yaml; only set overrides.
+# Copy this file to configs/subject_<id>_block<N>.yaml and edit.
+
+defaults_file: configs/analysis_defaults.yaml
+
+subject: "001"
+session: "01"
+task: "tistim"
+run: "01"
+
+bids_root: /absolute/path/to/bids
+derivatives_root: /absolute/path/to/bids/derivatives/ti_seeg
+
+# Optional patient-specific anatomy (used only for visualization).
+anatomy:
+  t1_path: null                    # /abs/path/to/T1.nii.gz or null
+  freesurfer_subjects_dir: null    # /abs/path/to/freesurfer/subjects or null
+  freesurfer_subject_id: null      # name within subjects_dir
+
+# TI stimulation parameters. Set block 1 = inhibition (130 Hz env), block 2 = excitation (5 Hz env).
+ti:
+  block_label: inhibition          # inhibition | excitation
+  f1_hz: 2000.0
+  f2_hz: 2130.0                    # => envelope = |f1 - f2| = 130 Hz
+  envelope_hz: 130.0
+
+# ROIs: anatomical labels expected in electrodes.tsv (case-insensitive substring match).
+rois:
+  hippocampus: ["hippocampus", "hippo", "ca1", "ca2", "ca3", "dg", "subiculum"]
+  amygdala: ["amygdala", "amy"]
+  temporal_pole: ["temporal pole", "temporalpole", "tpole"]
+
+# Per-module overrides (optional). Example: disable CFC for this subject:
+# phase:
+#   cfc:
+#     enabled: false

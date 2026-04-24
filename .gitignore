@@ -1,0 +1,99 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# uv
+.uv/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# Type checkers
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Neuroimaging / SEEG data (never commit raw data)
+*.edf
+*.fif
+*.fif.gz
+*.set
+*.vhdr
+*.vmrk
+*.eeg
+*.nii
+*.nii.gz
+*.mgz
+*.mgh
+*.dcm
+
+# Derivatives / outputs
+derivatives/
+outputs/
+results/
+reports/
+*.h5
+*.hdf5
+
+# FreeSurfer subjects dir
+subjects/
+fsaverage/
+
+# Logs
+logs/
+*.log
+
+# Config overrides containing PHI or paths
+configs/subject_*.yaml
+!configs/subject_template.yaml
+
+# Secrets
+.env
+.env.*
+!.env.example
