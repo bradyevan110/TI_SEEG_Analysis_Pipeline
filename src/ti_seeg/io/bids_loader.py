@@ -51,6 +51,12 @@ def load_subject(config: PipelineConfig) -> BIDSSubjectData:
     raw = read_raw_bids(bids_path, verbose="WARNING")
     raw.load_data()
 
+    n_total = len(raw.ch_names)
+    raw.pick("seeg")
+    n_kept = len(raw.ch_names)
+    if n_kept < n_total:
+        log.info("Picked %d SEEG channels (dropped %d non-SEEG).", n_kept, n_total - n_kept)
+
     electrodes = load_electrodes(config)
     events = load_events(raw, config)
 
