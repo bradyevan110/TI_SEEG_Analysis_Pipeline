@@ -33,6 +33,7 @@ def _build_bids_path(config: PipelineConfig):
         session=config.session,
         task=config.task,
         run=config.run,
+        acquisition=config.acquisition,
         datatype="ieeg",
         root=config.bids_root,
         suffix="ieeg",
@@ -49,13 +50,25 @@ def load_subject(config: PipelineConfig) -> BIDSSubjectData:
     log.info("Loading BIDS: %s", bids_path.basename)
 
     raw = read_raw_bids(bids_path, verbose="WARNING")
-    raw.load_data()
 
     n_total = len(raw.ch_names)
     raw.pick("seeg")
     n_kept = len(raw.ch_names)
     if n_kept < n_total:
         log.info("Picked %d SEEG channels (dropped %d non-SEEG).", n_kept, n_total - n_kept)
+
+    crop = config.preprocessing.crop or [None, None]
+    tmin, tmax = (list(crop) + [None, None])[:2]
+    if tmin is not None or tmax is not None:
+        log.info("Cropping raw to [%s, %s] sec before load.", tmin, tmax)
+        raw.crop(tmin=tmin or 0.0, tmax=tmax)
+
+    raw.load_data()
+
+    target_sfreq = config.preprocessing.target_sfreq
+    if target_sfreq is not None and target_sfreq < raw.info["sfreq"]:
+        log.info("Resampling %.1f -> %.1f Hz.", raw.info["sfreq"], target_sfreq)
+        raw.resample(target_sfreq, verbose="WARNING")
 
     electrodes = load_electrodes(config)
     events = load_events(raw, config)

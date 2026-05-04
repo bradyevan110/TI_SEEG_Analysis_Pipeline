@@ -30,6 +30,8 @@ class PreprocessingConfig(BaseModel):
     notch_width_hz: float = 2.0
     bandpass: list[float | None] = Field(default_factory=lambda: [0.5, None])
     reference: str = "bipolar"
+    crop: list[float | None] = Field(default_factory=lambda: [None, None])
+    target_sfreq: float | None = None
     bad_channel_strategy: BadChannelStrategy = Field(default_factory=BadChannelStrategy)
 
     @field_validator("reference")
@@ -155,6 +157,7 @@ class PipelineConfig(BaseModel):
     session: str | None = None
     task: str
     run: str | None = None
+    acquisition: str | None = None
 
     # Paths
     bids_root: str

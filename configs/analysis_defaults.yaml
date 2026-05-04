@@ -9,6 +9,8 @@ preprocessing:
   notch_width_hz: 2.0              # width of each notch
   bandpass: [0.5, null]            # [hp, lp]; null lp means 0.45 * fs
   reference: bipolar               # bipolar | car | monopolar
+  crop: [null, null]               # [tmin_sec, tmax_sec]; null=full range
+  target_sfreq: null               # downsample to this rate after crop; null=keep native
   bad_channel_strategy:
     method: variance_kurtosis      # variance_kurtosis | manual | none
     variance_z_thresh: 5.0
