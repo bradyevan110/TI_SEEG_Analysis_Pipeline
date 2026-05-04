@@ -25,6 +25,7 @@ class BadChannelStrategy(BaseModel):
 class PreprocessingConfig(BaseModel):
     line_freq: float = 60.0
     line_harmonics: int = 6
+    notch_carriers: bool = True
     carrier_harmonics: int = 4
     notch_width_hz: float = 2.0
     bandpass: list[float | None] = Field(default_factory=lambda: [0.5, None])

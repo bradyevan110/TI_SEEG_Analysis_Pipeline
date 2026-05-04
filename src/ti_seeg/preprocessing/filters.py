@@ -41,7 +41,9 @@ def apply_notches(
     nyq = raw.info["sfreq"] / 2.0
 
     line_freqs = _harmonics(pre.line_freq, pre.line_harmonics, nyq)
-    carrier_freqs = carrier_notch_freqs(ti, nyq, pre.carrier_harmonics)
+    carrier_freqs = (
+        carrier_notch_freqs(ti, nyq, pre.carrier_harmonics) if pre.notch_carriers else []
+    )
 
     all_freqs = sorted(set(line_freqs + carrier_freqs))
     if not all_freqs:

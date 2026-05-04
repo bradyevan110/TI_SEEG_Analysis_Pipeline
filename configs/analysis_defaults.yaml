@@ -4,6 +4,7 @@
 preprocessing:
   line_freq: 60.0                  # US; set to 50.0 for EU recordings
   line_harmonics: 6                # notch at line_freq * [1..N] up to Nyquist
+  notch_carriers: true             # set false when carriers are above Nyquist
   carrier_harmonics: 4             # notch at carrier * [1..N]
   notch_width_hz: 2.0              # width of each notch
   bandpass: [0.5, null]            # [hp, lp]; null lp means 0.45 * fs
