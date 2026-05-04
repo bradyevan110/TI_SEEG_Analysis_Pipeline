@@ -89,9 +89,7 @@ class EntrainmentConfig(BaseModel):
 class CFCConfig(BaseModel):
     enabled: bool = True
     phase_band: list[float] = Field(default_factory=lambda: [4.0, 8.0])
-    amp_bands: list[list[float]] = Field(
-        default_factory=lambda: [[30.0, 80.0], [80.0, 150.0]]
-    )
+    amp_bands: list[list[float]] = Field(default_factory=lambda: [[30.0, 80.0], [80.0, 150.0]])
     method: str = "tort"
     n_bins: int = 18
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from scipy.signal import hilbert
 
 from ti_seeg.phase.entrainment import plv_to_reference, plv_to_reference_with_surrogates
 
@@ -21,9 +22,7 @@ def test_plv_high_for_locked_channel_low_for_noise() -> None:
     ch_names = ["driven", "noise"]
 
     # Reference phase = Hilbert phase of a 10 Hz sinusoid with offset.
-    ref_phase = np.angle(
-        np.exp(1j * (2 * np.pi * f * t + 0.3))
-    )
+    ref_phase = np.angle(np.exp(1j * (2 * np.pi * f * t + 0.3)))
 
     result = plv_to_reference(
         data=data,
@@ -52,7 +51,10 @@ def test_surrogate_distinguishes_driven_from_noise() -> None:
     driven = np.sin(2 * np.pi * f * t + 0.5) + 0.6 * rng.normal(size=n)
     noise_ch = rng.normal(size=n)
     data = np.stack([driven, noise_ch])
-    ref_phase = np.angle(np.exp(1j * 2 * np.pi * f * t))
+    # Noise on the reference too — a pure sinusoid is shift-invariant under
+    # time-roll surrogates, which collapses the null distribution.
+    ref_signal = np.sin(2 * np.pi * f * t) + 0.3 * rng.normal(size=n)
+    ref_phase = np.angle(hilbert(ref_signal))
 
     result = plv_to_reference_with_surrogates(
         data=data,

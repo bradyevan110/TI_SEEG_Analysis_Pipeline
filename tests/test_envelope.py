@@ -33,9 +33,7 @@ def test_bandpass_hilbert_2d_input() -> None:
     duration = 8.0
     n = int(sfreq * duration)
     t = np.arange(n) / sfreq
-    sig = np.stack(
-        [np.sin(2 * np.pi * 10 * t), np.sin(2 * np.pi * 10 * t + np.pi / 2)]
-    )
+    sig = np.stack([np.sin(2 * np.pi * 10 * t), np.sin(2 * np.pi * 10 * t + np.pi / 2)])
     amp, phase = bandpass_hilbert(sig, sfreq=sfreq, f_center=10.0, bandwidth=2.0)
     assert amp.shape == sig.shape
     assert phase.shape == sig.shape

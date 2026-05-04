@@ -27,7 +27,9 @@ def ch_names() -> list[str]:
 
 
 @pytest.fixture
-def synthetic_raw(sfreq: float, ti_params: dict[str, float], ch_names: list[str]) -> mne.io.RawArray:
+def synthetic_raw(
+    sfreq: float, ti_params: dict[str, float], ch_names: list[str]
+) -> mne.io.RawArray:
     """Synthetic SEEG-like Raw with one channel carrying a 5 Hz envelope-modulated 2 kHz carrier,
     plus noise channels."""
     rng = np.random.default_rng(42)

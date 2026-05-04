@@ -116,8 +116,7 @@ def validate_subject_data(
     n_elec_rows = len(data.electrodes)
     if n_raw_channels != n_elec_rows:
         warnings_list.append(
-            f"Raw has {n_raw_channels} channels but electrodes.tsv has "
-            f"{n_elec_rows} rows."
+            f"Raw has {n_raw_channels} channels but electrodes.tsv has {n_elec_rows} rows."
         )
 
     if data.events.empty:
@@ -131,14 +130,10 @@ def validate_subject_data(
         }
         unknown = set(data.events["canonical"].dropna()) - known
         if unknown:
-            warnings_list.append(
-                f"Unknown canonical event labels present: {sorted(unknown)}"
-            )
+            warnings_list.append(f"Unknown canonical event labels present: {sorted(unknown)}")
 
     for msg in warnings_list:
         log.warning(msg)
     if strict and warnings_list:
-        raise RuntimeError(
-            "Validation failed:\n  - " + "\n  - ".join(warnings_list)
-        )
+        raise RuntimeError("Validation failed:\n  - " + "\n  - ".join(warnings_list))
     return warnings_list

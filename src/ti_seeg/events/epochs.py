@@ -19,9 +19,7 @@ def select_condition_events(events_df: pd.DataFrame, condition: str) -> pd.DataF
     return events_df[events_df["canonical"] == condition].reset_index(drop=True)
 
 
-def _events_array_from_df(
-    df: pd.DataFrame, sfreq: float, event_id: int
-) -> np.ndarray:
+def _events_array_from_df(df: pd.DataFrame, sfreq: float, event_id: int) -> np.ndarray:
     onsets = (df["onset"].to_numpy() * sfreq).round().astype(int)
     arr = np.zeros((len(onsets), 3), dtype=int)
     arr[:, 0] = onsets

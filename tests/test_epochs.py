@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from ti_seeg.events.epochs import make_condition_epochs, make_sliding_epochs, select_condition_events
+from ti_seeg.events.epochs import (
+    make_condition_epochs,
+    make_sliding_epochs,
+    select_condition_events,
+)
 
 
 def test_select_condition_events(synthetic_events) -> None:

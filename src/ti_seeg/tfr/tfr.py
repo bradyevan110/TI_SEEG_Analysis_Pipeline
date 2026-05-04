@@ -35,9 +35,10 @@ def compute_tfr(
     config: PipelineConfig,
     picks: str | list[str] = "data",
     return_itc: bool = False,
-) -> mne.time_frequency.AverageTFR | tuple[
-    mne.time_frequency.AverageTFR, mne.time_frequency.AverageTFR
-]:
+) -> (
+    mne.time_frequency.AverageTFR
+    | tuple[mne.time_frequency.AverageTFR, mne.time_frequency.AverageTFR]
+):
     cfg = config.tfr
     freqs = _freqs(config)
     n_cycles = _n_cycles(freqs, cfg.n_cycles_rule)

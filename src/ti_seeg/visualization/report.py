@@ -52,7 +52,9 @@ class ReportBuilder:
         self.report.add_html(html=html, title=title, section=section)
         self._n_added += 1
 
-    def add_code(self, title: str, code: str, language: str = "yaml", section: str = "other") -> None:
+    def add_code(
+        self, title: str, code: str, language: str = "yaml", section: str = "other"
+    ) -> None:
         html = f"<pre><code class='language-{language}'>{code}</code></pre>"
         self.report.add_html(html=html, title=title, section=section)
         self._n_added += 1

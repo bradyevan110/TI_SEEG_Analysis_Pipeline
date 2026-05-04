@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.signal import butter, filtfilt, hilbert
+from scipy.signal import butter, hilbert, sosfiltfilt
 
 from ..logging import get_logger
 
@@ -27,8 +27,8 @@ def bandpass_hilbert(
     hi = min(0.49 * sfreq, f_center + bandwidth / 2.0)
     if hi <= lo:
         raise ValueError(f"Invalid band [{lo}, {hi}] for sfreq={sfreq}")
-    b, a = butter(order, [lo / (sfreq / 2), hi / (sfreq / 2)], btype="band")
-    filtered = filtfilt(b, a, data, axis=-1)
+    sos = butter(order, [lo / (sfreq / 2), hi / (sfreq / 2)], btype="band", output="sos")
+    filtered = sosfiltfilt(sos, data, axis=-1)
     analytic = hilbert(filtered, axis=-1)
     amplitude = np.abs(analytic)
     phase = np.angle(analytic)
@@ -57,15 +57,11 @@ def extract_ti_envelope(
     """
     if raw_data.ndim != 1:
         raise ValueError("extract_ti_envelope expects a 1D signal.")
-    amp, phase = bandpass_hilbert(
-        raw_data, sfreq=sfreq, f_center=f_env, bandwidth=bandwidth
-    )
+    amp, phase = bandpass_hilbert(raw_data, sfreq=sfreq, f_center=f_env, bandwidth=bandwidth)
     log.info(
         "TI envelope @ %.2f Hz (bw=%.1f): mean amp = %.3e",
         f_env,
         bandwidth,
         float(amp.mean()),
     )
-    return EnvelopeResult(
-        amplitude=amp, phase=phase, sfreq=sfreq, f_env=f_env, bandwidth=bandwidth
-    )
+    return EnvelopeResult(amplitude=amp, phase=phase, sfreq=sfreq, f_env=f_env, bandwidth=bandwidth)

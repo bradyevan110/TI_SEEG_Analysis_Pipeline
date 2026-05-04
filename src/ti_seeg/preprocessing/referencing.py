@@ -63,9 +63,7 @@ def apply_reference(
     if scheme == "bipolar":
         pairs = bipolar_pairs_from_shanks(raw.ch_names)
         if not pairs:
-            log.warning(
-                "No bipolar pairs parsed from channel names; falling back to monopolar."
-            )
+            log.warning("No bipolar pairs parsed from channel names; falling back to monopolar.")
             return raw
         anodes = [a for a, _ in pairs]
         cathodes = [c for _, c in pairs]

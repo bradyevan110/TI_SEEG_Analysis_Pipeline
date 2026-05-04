@@ -21,7 +21,9 @@ class CFCResult:
     distribution: np.ndarray | None = None  # (n_channels, n_amp_bands, n_bins)
 
 
-def _tort_mi(phase: np.ndarray, amplitude: np.ndarray, n_bins: int = 18) -> tuple[float, np.ndarray]:
+def _tort_mi(
+    phase: np.ndarray, amplitude: np.ndarray, n_bins: int = 18
+) -> tuple[float, np.ndarray]:
     """Tort 2010 modulation index for a single (phase, amplitude) pair, each shape (n_times,)."""
     bins = np.linspace(-np.pi, np.pi, n_bins + 1)
     bin_idx = np.digitize(phase, bins) - 1

@@ -81,9 +81,7 @@ class RunContext:
             log.info("Loading cached preprocessed raw: %s", pre_path)
             self.raw_pre = mne.io.read_raw_fif(pre_path, preload=True, verbose="WARNING")
             return self.raw_pre
-        raise RuntimeError(
-            "No preprocessed raw available. Run the 'preprocessing' step first."
-        )
+        raise RuntimeError("No preprocessed raw available. Run the 'preprocessing' step first.")
 
     def get_epochs(self, conditions: list[str] | None = None) -> dict[str, mne.Epochs]:
         if self.epochs:
@@ -125,8 +123,9 @@ def _step_preprocessing(ctx: RunContext) -> None:
     # QC figure.
     fig = plot_bad_channels_qc(bad, total_channels=len(bids.raw.ch_names))
     ctx.report.add_figure(fig, title="Bad channels", section="qc")
-    log.info("Preprocessing done. n_bad=%d, reference=%s",
-             len(bad), ctx.config.preprocessing.reference)
+    log.info(
+        "Preprocessing done. n_bad=%d, reference=%s", len(bad), ctx.config.preprocessing.reference
+    )
 
 
 def _step_anatomy(ctx: RunContext) -> None:
@@ -144,8 +143,14 @@ def _step_anatomy(ctx: RunContext) -> None:
         ctx.report.add_figure(fig, title="Anatomy — contacts", section="anatomy")
 
     # ROI summary as HTML.
-    rows = [f"<tr><td>{roi}</td><td>{len(chans)}</td></tr>" for roi, chans in ctx.roi_groups.items()]
-    html = "<table><thead><tr><th>ROI</th><th>n_channels</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+    rows = [
+        f"<tr><td>{roi}</td><td>{len(chans)}</td></tr>" for roi, chans in ctx.roi_groups.items()
+    ]
+    html = (
+        "<table><thead><tr><th>ROI</th><th>n_channels</th></tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table>"
+    )
     ctx.report.add_html(title="ROI channel counts", html=html, section="anatomy")
 
 
@@ -159,8 +164,13 @@ def _step_spectral(ctx: RunContext) -> None:
         results[cond] = res
         bands_df = aggregate_bands(res, ctx.config.spectral.bands)
         band_frames.append(bands_df)
-        fig = plot_psd(res.freqs, res.psd, channel_names=res.ch_names,
-                       title=f"PSD — {cond}", fmax=min(200.0, float(res.freqs.max())))
+        fig = plot_psd(
+            res.freqs,
+            res.psd,
+            channel_names=res.ch_names,
+            title=f"PSD — {cond}",
+            fmax=min(200.0, float(res.freqs.max())),
+        )
         ctx.report.add_figure(fig, title=f"PSD — {cond}", section="spectral")
 
     if band_frames:
@@ -185,8 +195,7 @@ def _step_tfr(ctx: RunContext) -> None:
                 picks = [tfr.ch_names.index(c) for c in chans_in]
                 mean_tfr = tfr.data[picks].mean(axis=0)  # (n_freqs, n_times)
                 fig = plot_tfr_roi(
-                    mean_tfr, freqs=tfr.freqs, times=tfr.times,
-                    title=f"TFR — {cond} — {roi}"
+                    mean_tfr, freqs=tfr.freqs, times=tfr.times, title=f"TFR — {cond} — {roi}"
                 )
                 ctx.report.add_figure(fig, title=f"TFR {cond} / {roi}", section="tfr")
 
@@ -328,9 +337,7 @@ def run_pipeline(config: PipelineConfig, steps: list[str]) -> Path:
 
     for step in steps:
         if step not in STEP_REGISTRY:
-            raise ValueError(
-                f"Unknown step {step!r}. Available: {sorted(STEP_REGISTRY)}"
-            )
+            raise ValueError(f"Unknown step {step!r}. Available: {sorted(STEP_REGISTRY)}")
         log.info("==== step: %s ====", step)
         STEP_REGISTRY[step](ctx)
         write_manifest(out_dir, config, step=step)
