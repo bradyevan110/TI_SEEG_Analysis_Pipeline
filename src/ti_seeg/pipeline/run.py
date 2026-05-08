@@ -44,6 +44,7 @@ log = get_logger("pipeline.run")
 AVAILABLE_STEPS = [
     "preprocessing",
     "anatomy",
+    "efield",
     "spectral",
     "tfr",
     "phase",
@@ -152,6 +153,21 @@ def _step_anatomy(ctx: RunContext) -> None:
         + "</tbody></table>"
     )
     ctx.report.add_html(title="ROI channel counts", html=html, section="anatomy")
+
+
+def _step_efield(ctx: RunContext) -> None:
+    """TI E-field modeling via SimNIBS. Stubbed pending implementation in
+    HANDOFF_EFIELD.md §7.3."""
+    cfg = ctx.config.efield
+    if not cfg.enabled:
+        log.info("efield.enabled=false; skipping E-field step.")
+        return
+    if cfg.montage is None:
+        raise ValueError("efield.enabled is true but efield.montage is unset.")
+    raise NotImplementedError(
+        "The efield step is registered but not yet implemented. "
+        "Tracking issue: https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/issues/11"
+    )
 
 
 def _step_spectral(ctx: RunContext) -> None:
@@ -308,6 +324,7 @@ def _step_report(ctx: RunContext) -> None:
 STEP_REGISTRY = {
     "preprocessing": _step_preprocessing,
     "anatomy": _step_anatomy,
+    "efield": _step_efield,
     "spectral": _step_spectral,
     "tfr": _step_tfr,
     "phase": _step_phase,
