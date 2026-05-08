@@ -2,11 +2,13 @@
 
 > **Purpose of this file:** self-contained briefing for the next Claude
 > session (or human collaborator) who picks up the `efield` pipeline
-> module. Reflects what has actually been implemented in PRs #12–#17,
-> not the original design plan. Read alongside the main project handoff
-> in [`HANDOFF.md`](HANDOFF.md).
+> module. Reflects what has actually been implemented in PRs #12–#18
+> (plus sibling CI fix #19), not the original design plan. Read
+> alongside the main project handoff in [`HANDOFF.md`](HANDOFF.md).
 >
-> **Last updated:** 2026-05-08 (after PRs #12–#17 stacked against `main`)
+> **Last updated:** 2026-05-08 (after PRs #12–#18 stacked against
+> `main` + sibling lint-debt PR #19; stack rebased once onto the CI
+> uv-flag fix).
 >
 > **Tracking issue:**
 > [#11](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/issues/11)
@@ -23,14 +25,26 @@
 | 7.4 | [#15](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/15) | open, stacked on #14 | `_step_efield` wired to call charm + FEM + envelope + sampling |
 | 7.5 | [#16](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/16) | open, stacked on #15 | `efield_plots.py` (orthoslice + 3D pyvista + per-contact bar) + report integration |
 | 7.6 | [#17](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/17) | open, stacked on #16 | `@pytest.mark.slow` end-to-end smoke gated on `$TI_SEEG_M2M_DIR` |
+| docs | [#18](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/18) | open, stacked on #17 | This handoff document — rewrite as post-implementation briefing |
 | 7.7 | — | TODO | Real-MRI dry run on EMOP0649 (§9 of this doc) |
 
-PRs are **stacked**: #13 targets #12, #14 targets #13, etc. Merge in
-order, or squash-merge each as #12 lands and let the others rebase onto
-`main`. Each PR is self-contained but assumes its predecessors.
+Sibling PR (unblocking CI on `main`):
 
-Test count on the top branch: **39 collected, 38 pass, 1 skip** (pyvista
-not installed in the project venv; skipped cleanly).
+| PR | Targets | What it fixes |
+|---|---|---|
+| [#19](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/19) | `main` | Pre-existing ruff lint debt (8 errors → 0; CI has been red on `main` since repo setup at 2026-04-24). Land first, then rebase the efield stack on top. |
+
+PRs are **stacked**: #13 targets #12, #14 targets #13, …, #18 targets
+#17. Merge in order, or squash-merge each as #12 lands and let the
+others rebase onto `main`. Each PR is self-contained but assumes its
+predecessors. The entire stack was rebased once after the CI fix
+[3fde783](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/commit/3fde783)
+landed on `efield/step-1-schema` (uv ≥ 0.11 rejects
+`--all-extras --extra dev` as mutually exclusive).
+
+Test count on the top branch (`efield/step-7-handoff-doc`):
+**39 collected, 38 pass, 1 skip** (pyvista not installed in the
+project venv; skipped cleanly).
 
 `efield.enabled=false` is the default; the rest of the pipeline runs
 unchanged for users who don't opt in.
@@ -53,10 +67,17 @@ elsewhere.
   `pip install simnibs` into our venv is unsupported, and SimNIBS isn't
   on PyPI in any case. The module **shells out** instead.
 - **Precomputed reference m2m heads** (the maintainer's TI-Toolbox repo):
-  - `/Users/ebrady/Projects/TI_Toolbox/code/ti-toolbox/TI-Toolbox/derivatives/SimNIBS/sub-ernie/m2m_ernie/`
-    *(incomplete — only T1 + settings.ini; charm did not finish)*
-  - `…/sub-MNI152/m2m_MNI152/`
-  - `…/sub-ernie/anat/sub-ernie_T1w.nii` is a usable T1 for running charm.
+  Both folders below are **partial** — neither has a `<sub>.msh` head
+  mesh, so neither is usable as a `$TI_SEEG_M2M_DIR` fixture for the
+  slow smoke test until charm is re-run to completion.
+  - `…/derivatives/SimNIBS/sub-ernie/m2m_ernie/` — has only `T1.nii.gz`
+    + `settings.ini` + `charm_log.html`.
+  - `…/derivatives/SimNIBS/sub-MNI152/m2m_MNI152/` — further along
+    (has `label_prep/`, `segmentation/`, `surfaces/`, `toMNI/`) but
+    still no head mesh.
+  - `…/sub-ernie/anat/sub-ernie_T1w.nii` is a usable T1 for running
+    charm fresh; the maintainer can produce a complete `m2m_ernie/`
+    in 1–3 hr from this file.
 
 ---
 
@@ -206,17 +227,18 @@ class EfieldConfig(BaseModel):
 Other changes:
 
 - `AnatomyConfig` gained `t2_path: str | None = None`
-  ([config.py:150](src/ti_seeg/config.py:150)).
+  ([config.py:151](src/ti_seeg/config.py:151)).
 - `PipelineConfig.efield` field added between `connectivity` and `stats`
-  ([config.py:221](src/ti_seeg/config.py:221)).
+  ([config.py:224](src/ti_seeg/config.py:224)).
 - `ReportConfig.include_sections` default now contains `"efield"`
-  ([config.py:127](src/ti_seeg/config.py:127)).
+  (the list literal starts at [config.py:124](src/ti_seeg/config.py:124),
+  inside the `ReportConfig` model declared at line 122).
 
 ### 3.4 Modified: [`src/ti_seeg/pipeline/run.py`](src/ti_seeg/pipeline/run.py)
 
 - `AVAILABLE_STEPS` ([run.py:44](src/ti_seeg/pipeline/run.py:44)) now lists
   `"efield"` between `"anatomy"` and `"spectral"`.
-- `STEP_REGISTRY` ([run.py:438](src/ti_seeg/pipeline/run.py:438))
+- `STEP_REGISTRY` ([run.py:433](src/ti_seeg/pipeline/run.py:433))
   registers `_step_efield`.
 - `_step_efield` ([run.py:158](src/ti_seeg/pipeline/run.py:158)):
   1. Short-circuit if `cfg.enabled is False` (default).
@@ -275,14 +297,30 @@ Adds an `efield:` block at the bottom (defaults) and `"efield"` to
 `anatomy.t2_path` field + a fully-commented example `efield:` block at the
 bottom.
 
+### 3.10.1 Modified: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+
+Dropped the redundant `--extra dev` from the `uv sync` invocation
+(commit
+[3fde783](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/commit/3fde783)).
+uv ≥ 0.11 rejects `--all-extras --extra <name>` as mutually exclusive.
+Pre-existing CI infra change, not strictly part of the efield work, but
+folded onto the bottom of `efield/step-1-schema` so the stack can run
+its own CI.
+
 ### 3.11 New: [`tests/test_efield.py`](tests/test_efield.py)
 
-13 tests:
+14 tests:
 - 3× `sample_efield_at_contacts` (in-volume / invalid-coords / no-xyz-cols)
-- 4× `find_simnibs_dir` / `template_m2m_dir` filesystem behavior
+- 2× `find_simnibs_dir` (explicit-override happy path / missing-install raises)
+- 3× `template_m2m_dir` (unset raises / present returns path / missing-dir raises)
 - 4× visualization (orthoslice / per-contact bar empty / per-contact bar populated / 3D mesh — the last skips when pyvista isn't installed)
 - 1× SimNIBS smoke (skipped if no install detected) — `simnibs_python --version`
 - 1× `@pytest.mark.slow` full-pipeline smoke (skipped unless `$TI_SEEG_M2M_DIR` points at a complete m2m and SimNIBS is detected)
+
+Whole-suite count after this PR: **39 tests collected** (25 pre-existing
++ 14 new). Default `pytest` run: 38 pass, 1 skip (the 3D-mesh test
+skips because pyvista is in the optional `efield` extra and not in the
+project venv). With `--extra efield` installed: 39 pass.
 
 ---
 
@@ -570,6 +608,17 @@ Concrete steps (file paths assume current convention):
   failing script would tighten coverage.
 - **Migrate `[tool.uv] dev-dependencies` → `[dependency-groups] dev`** —
   silences the uv deprecation warning on every invocation.
+- **Per-step CLI script for efield** — the repo has
+  `scripts/run_<step>.py` thin wrappers for every other step (anatomy,
+  spectral, tfr, phase, connectivity, stats, full). A
+  `scripts/run_efield.py` (≈20 LOC, mirroring `run_anatomy.py`) would
+  match the convention. Skipped here to keep PR scope tight; the
+  supported entry point is `uv run ti-seeg run --steps efield …`.
+- **Tighten `_step_efield` viz-dispatch except clause** — the bare
+  `except Exception` was pragmatic for unknown failure modes during
+  development; once we know which exceptions actually fire (likely
+  `ImportError` for pyvista, `RuntimeError` from subprocess, plus a
+  few matplotlib edge cases), narrow it.
 
 ---
 
@@ -592,12 +641,18 @@ Concrete steps (file paths assume current convention):
 - Original planning handoff (this file's previous version): see git
   history before commit `b6f6e8a`.
 - Tracking issue: [#11](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/issues/11).
-- PRs: [#12](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/12),
-  [#13](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/13),
-  [#14](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/14),
-  [#15](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/15),
-  [#16](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/16),
-  [#17](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/17).
+- PRs: [#12](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/12)
+  (schema), [#13](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/13)
+  (stub), [#14](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/14)
+  (core wrapper), [#15](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/15)
+  (wire), [#16](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/16)
+  (viz), [#17](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/17)
+  (slow smoke), [#18](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/18)
+  (this doc), [#19](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/19)
+  (sibling — main lint debt).
+- CI fix commit:
+  [3fde783](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/commit/3fde783)
+  (uv flag conflict on `efield/step-1-schema`).
 - Grossman et al. (2017). "Noninvasive Deep Brain Stimulation via
   Temporally Interfering Electric Fields." *Cell* 169(6):1029–1041.
 - SimNIBS 4 documentation: <https://simnibs.github.io/simnibs/>
@@ -614,17 +669,29 @@ Concrete steps (file paths assume current convention):
 
 > "Picking up the TI E-field module on TI_SEEG_Analysis_Pipeline.
 > Read `HANDOFF.md` (project state) and this file
-> (`HANDOFF_EFIELD.md`) at the repo root. PRs #12–#17 implement
-> steps 7.1–7.6 and are stacked off `main`; merge them in order
-> (or wait for #12 to land and rebase the rest). The next concrete
-> work is step 7.7 in §9.1 — the EMOP0649 dry run, blocked on (a)
-> the user supplying real stim-electrode names for the `<TBD>`
-> placeholders and (b) the EMOP0649 T1+T2 landing in BIDS. Do not
-> kick off `charm` on a real subject without the user's go-ahead —
-> it is 1–3 hours of compute and ~2 GB of disk per subject. Useful
-> dev fixture: a precomputed Ernie m2m (the user's existing one in
-> TI_Toolbox is incomplete; running charm on
+> (`HANDOFF_EFIELD.md`) at the repo root.
+>
+> **Stack state.** PRs #12–#17 implement steps 7.1–7.6 and are stacked
+> off `main`; PR #18 is this handoff doc on top of #17; PR #19 is a
+> sibling targeting `main` directly that clears pre-existing ruff lint
+> debt. **Recommended merge order:** #19 first (so `main` is green),
+> then rebase the efield stack onto it and squash-merge in order
+> #12 → #13 → #14 → #15 → #16 → #17 → #18.
+>
+> **Next concrete work.** Step 7.7 in §9.1 — the EMOP0649 dry run.
+> Blocked on (a) the user supplying real stim-electrode names for the
+> `<TBD>` placeholders and (b) the EMOP0649 T1+T2 landing in BIDS.
+> **Do not kick off `charm` on a real subject without the user's
+> go-ahead** — it is 1–3 hr of compute and ~2 GB of disk per subject.
+>
+> **Useful dev fixture.** A complete Ernie m2m. The user's two existing
+> m2m_* folders under `…/TI_Toolbox/derivatives/SimNIBS/sub-{ernie,MNI152}/`
+> are **partial** — neither has a `<sub>.msh` head mesh. Running charm
+> fresh on
 > `/Users/ebrady/Projects/TI_Toolbox/code/ti-toolbox/TI-Toolbox/sub-ernie/anat/sub-ernie_T1w.nii`
-> produces a usable m2m for the slow smoke). When in doubt, default
-> behavior is `efield.enabled=false` — the rest of the pipeline runs
-> unchanged."
+> produces a usable m2m for the `@slow` smoke (see §5.4).
+>
+> **Defaults to lean on.** `efield.enabled=false` keeps the rest of
+> the pipeline a no-op for this step. SimNIBS auto-discovery checks
+> `~/Applications/SimNIBS-*` and `/Applications/SimNIBS-*` — the
+> maintainer's install is at `/Users/ebrady/Applications/SimNIBS-4.6/`."
