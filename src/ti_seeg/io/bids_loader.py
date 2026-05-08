@@ -21,7 +21,7 @@ class BIDSSubjectData:
     raw: mne.io.BaseRaw
     electrodes: pd.DataFrame  # one row per channel w/ coords + anat labels
     events: pd.DataFrame  # columns: onset, duration, trial_type, ...
-    bids_path: "object"  # mne_bids.BIDSPath
+    bids_path: object  # mne_bids.BIDSPath
 
 
 def _build_bids_path(config: PipelineConfig):

@@ -69,7 +69,7 @@ def project_contact_values_to_t1(
     for name in matched:
         x, y, z = contacts.loc[name, ["x", "y", "z"]].to_numpy(dtype=float)
         val = float(values[name])
-        idx = np.round((np.array([x, y, z]) - origin)).astype(int)
+        idx = np.round(np.array([x, y, z]) - origin).astype(int)
         # Gaussian kernel in a local box.
         r = int(np.ceil(3 * radius_mm))
         slices = tuple(
