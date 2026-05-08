@@ -31,7 +31,10 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --all-extras --extra dev
+        # `--all-extras` already installs every entry in
+        # [project.optional-dependencies] (including `dev`); combining it
+        # with `--extra dev` is rejected by uv >= 0.11.
+        run: uv sync --all-extras
 
       - name: Ruff lint
         run: uv run ruff check .
