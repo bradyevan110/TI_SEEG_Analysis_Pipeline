@@ -194,3 +194,85 @@ def test_plot_efield_3d_mesh_or_skip(tmp_path: Path) -> None:
     fig = plot_efield_3d_mesh(npz, contacts_df=None, title="t")
     assert fig is not None
     fig.clf()
+
+
+# ---------------------------------------------------------------------------
+# Slow integration: full FEM → envelope → sampling on a real m2m head model.
+#
+# Requires:
+#   - SimNIBS install (auto-detected via find_simnibs_dir)
+#   - A complete m2m_<sub>/ folder (with the .msh head mesh) supplied via
+#     env var TI_SEEG_M2M_DIR. Charm itself is too slow for a smoke test.
+#
+# Run manually:
+#   TI_SEEG_M2M_DIR=/path/to/m2m_ernie uv run pytest -m slow tests/test_efield.py
+# ---------------------------------------------------------------------------
+
+
+def _slow_smoke_prereqs() -> tuple[bool, str]:
+    if not _simnibs_available():
+        return False, "SimNIBS not installed"
+    m2m_env = os.environ.get("TI_SEEG_M2M_DIR")
+    if not m2m_env:
+        return False, "TI_SEEG_M2M_DIR not set"
+    m2m = Path(m2m_env)
+    subid = m2m.name.removeprefix("m2m_")
+    head_msh = m2m / f"{subid}.msh"
+    if not head_msh.exists():
+        return False, f"head mesh missing: {head_msh}"
+    return True, ""
+
+
+_SLOW_OK, _SLOW_REASON = _slow_smoke_prereqs()
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not _SLOW_OK, reason=_SLOW_REASON or "slow smoke prereqs not met")
+def test_full_efield_pipeline_smoke(tmp_path: Path) -> None:
+    """Run a single FEM solve + envelope + per-contact sampling end-to-end.
+
+    Uses the m2m head model pointed at by $TI_SEEG_M2M_DIR. Skips if absent.
+    Wall time on a modern laptop: ~5–10 minutes per FEM solve.
+    """
+    from ti_seeg.config import EfieldCarrierPair, EfieldElectrode
+    from ti_seeg.source.efield import (
+        compute_ti_envelope,
+        sample_efield_at_contacts,
+        simulate_carrier_pair,
+    )
+
+    simnibs_dir = find_simnibs_dir()
+    m2m = Path(os.environ["TI_SEEG_M2M_DIR"])
+
+    pair_a = EfieldCarrierPair(
+        anode=EfieldElectrode(name="F3"),
+        cathode=EfieldElectrode(name="P4"),
+        current_mA=1.0,
+        label="smoke_a",
+    )
+    pair_b = EfieldCarrierPair(
+        anode=EfieldElectrode(name="F4"),
+        cathode=EfieldElectrode(name="P3"),
+        current_mA=1.0,
+        label="smoke_b",
+    )
+
+    msh_a, _ = simulate_carrier_pair(m2m, pair_a, tmp_path / "pair_a", simnibs_dir=simnibs_dir)
+    msh_b, _ = simulate_carrier_pair(m2m, pair_b, tmp_path / "pair_b", simnibs_dir=simnibs_dir)
+    assert msh_a.exists() and msh_b.exists()
+
+    t1_bg = m2m / "T1.nii.gz"
+    msh_env, nii_env = compute_ti_envelope(
+        msh_a,
+        msh_b,
+        out_dir=tmp_path,
+        simnibs_dir=simnibs_dir,
+        reference_volume=t1_bg if t1_bg.exists() else None,
+    )
+    assert msh_env.exists()
+
+    if nii_env.exists():
+        electrodes = pd.DataFrame({"name": ["c1"], "x": [0.0], "y": [0.0], "z": [0.0]})
+        out = sample_efield_at_contacts(nii_env, electrodes, radius_mm=2.0)
+        # Origin may be outside the head; the function should not crash.
+        assert isinstance(out, pd.DataFrame)
