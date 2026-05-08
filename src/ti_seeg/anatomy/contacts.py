@@ -30,9 +30,8 @@ def anat_label_column(electrodes: pd.DataFrame) -> str | None:
             return cand
     # Heuristic fallback: any string column with many unique values.
     for c in electrodes.columns:
-        if electrodes[c].dtype == object and electrodes[c].nunique() >= 3:
-            if c.lower() != "name":
-                return c
+        if electrodes[c].dtype == object and electrodes[c].nunique() >= 3 and c.lower() != "name":
+            return c
     return None
 
 
@@ -49,7 +48,9 @@ def channel_to_anat_label(
         log.warning("No anatomical-label column found in electrodes.tsv.")
         return {ch: None for ch in ch_names}
 
-    lookup = dict(zip(electrodes["name"].astype(str), electrodes[label_col].astype(str)))
+    lookup = dict(
+        zip(electrodes["name"].astype(str), electrodes[label_col].astype(str), strict=False)
+    )
 
     out: dict[str, str | None] = {}
     for ch in ch_names:
