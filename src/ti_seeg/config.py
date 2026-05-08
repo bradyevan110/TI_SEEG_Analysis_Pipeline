@@ -187,6 +187,10 @@ class EfieldConfig(BaseModel):
     visualize_3d: bool = True
     contact_sampling_radius_mm: float = 2.0
     fallback_to_template: bool = True
+    simnibs_dir: str | None = None  # /path/to/SimNIBS-4.x; null -> auto-discover
+    template_m2m_dir: str | None = (
+        None  # /path/to/m2m_ernie (or other head model) used when t1_path is null
+    )
 
 
 class PipelineConfig(BaseModel):

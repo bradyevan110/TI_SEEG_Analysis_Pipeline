@@ -1,9 +1,9 @@
-"""Project contact-level scalar results onto a volumetric T1, and stub for E-field.
+"""Project contact-level scalar results onto a volumetric T1.
 
 True inverse modeling is not meaningful for intracranial SEEG — the electrodes
-already sample the source. v1 therefore provides (a) visualization projection
-of contact-level effect sizes onto a T1/fsaverage for inspection and (b) a
-placeholder for TI E-field modeling (SimNIBS / ROAST) to be implemented in v2.
+already sample the source. This module provides a visualization projection of
+contact-level effect sizes onto a T1/fsaverage for inspection. TI E-field
+modeling lives in :mod:`ti_seeg.source.efield`.
 """
 
 from __future__ import annotations
@@ -97,10 +97,3 @@ def project_contact_values_to_t1(
         log.info("Wrote projected volume: %s", out_path)
 
     return grid
-
-
-def compute_ti_field(*args, **kwargs) -> None:
-    """Planned v2: TI E-field modeling via SimNIBS / ROAST integration."""
-    raise NotImplementedError(
-        "TI E-field modeling (SimNIBS/ROAST) is planned for v2 of the pipeline."
-    )
