@@ -124,6 +124,7 @@ class ReportConfig(BaseModel):
         default_factory=lambda: [
             "qc",
             "anatomy",
+            "efield",
             "spectral",
             "tfr",
             "phase",

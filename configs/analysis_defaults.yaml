@@ -116,6 +116,7 @@ report:
   include_sections:
     - qc
     - anatomy
+    - efield
     - spectral
     - tfr
     - phase

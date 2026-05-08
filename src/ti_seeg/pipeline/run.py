@@ -223,6 +223,7 @@ def _step_efield(ctx: RunContext) -> None:
     )
 
     # Per-contact sampling (NIfTI required).
+    per_contact = pd.DataFrame()
     if nii_env.exists():
         per_contact = sample_efield_at_contacts(
             envelope_nifti=nii_env,
@@ -234,16 +235,44 @@ def _step_efield(ctx: RunContext) -> None:
     else:
         log.warning("No envelope NIfTI produced (no reference T1); skipping per-contact sampling.")
 
-    # Portable surface export for the visualization step.
+    # Portable surface export for 3D rendering.
+    surface_npz: Path | None = None
     if cfg.visualize_3d:
         try:
-            export_envelope_surface(
+            surface_npz = export_envelope_surface(
                 envelope_msh=msh_env,
                 out_path=efield_dir / "ti_envelope_surface.npz",
                 simnibs_dir=simnibs_dir,
             )
         except RuntimeError as e:
             log.warning("Skipped surface export (will fall back to ortho-slice in viz): %s", e)
+
+    # ---- Visualization ----
+    from ..visualization.efield_plots import (
+        plot_efield_3d_mesh,
+        plot_efield_orthoslice,
+        plot_per_contact_envelope,
+    )
+
+    if nii_env.exists():
+        try:
+            fig_ortho = plot_efield_orthoslice(
+                nii_env, t1_bg=t1_bg if t1_bg.exists() else None, title="TI envelope"
+            )
+            ctx.report.add_figure(fig_ortho, title="TI envelope (orthogonal)", section="efield")
+        except Exception as e:
+            log.warning("Orthoslice plot failed: %s", e)
+
+    if cfg.visualize_3d and surface_npz is not None:
+        try:
+            fig_3d = plot_efield_3d_mesh(surface_npz, contacts_df=bids.electrodes)
+            ctx.report.add_figure(fig_3d, title="TI envelope (3D)", section="efield")
+        except Exception as e:
+            log.warning("3D mesh plot skipped: %s", e)
+
+    if not per_contact.empty:
+        fig_bar = plot_per_contact_envelope(per_contact, ctx.roi_groups or None)
+        ctx.report.add_figure(fig_bar, title="Predicted envelope per contact", section="efield")
 
     log.info("efield step done. Outputs in %s", efield_dir)
 
