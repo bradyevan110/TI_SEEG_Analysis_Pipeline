@@ -11,9 +11,10 @@ run: "01"
 bids_root: /absolute/path/to/bids
 derivatives_root: /absolute/path/to/bids/derivatives/ti_seeg
 
-# Optional patient-specific anatomy (used only for visualization).
+# Optional patient-specific anatomy (used only for visualization + E-field modeling).
 anatomy:
   t1_path: null                    # /abs/path/to/T1.nii.gz or null
+  t2_path: null                    # /abs/path/to/T2.nii.gz or null (improves SimNIBS charm)
   freesurfer_subjects_dir: null    # /abs/path/to/freesurfer/subjects or null
   freesurfer_subject_id: null      # name within subjects_dir
 
@@ -34,3 +35,22 @@ rois:
 # phase:
 #   cfc:
 #     enabled: false
+
+# Example efield block — enable + populate before running with --steps efield.
+# Carrier pairs deliver high-frequency stim; the envelope = |f1 - f2|.
+# Requires SimNIBS: `uv sync --extra efield`.
+# efield:
+#   enabled: true
+#   montage:
+#     pair_a:
+#       anode: { name: "F4", radius_mm: 12.0 }
+#       cathode: { name: "P4", radius_mm: 12.0 }
+#       current_mA: 1.0
+#       label: "carrier_2000Hz"
+#     pair_b:
+#       anode: { name: "F8", radius_mm: 12.0 }
+#       cathode: { name: "P8", radius_mm: 12.0 }
+#       current_mA: 1.0
+#       label: "carrier_2130Hz"
+#   visualize_3d: true
+#   contact_sampling_radius_mm: 2.0

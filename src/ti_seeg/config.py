@@ -9,7 +9,6 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-
 # ---------------------------------------------------------------------------
 # Schema
 # ---------------------------------------------------------------------------
@@ -147,8 +146,47 @@ class TIStimConfig(BaseModel):
 
 class AnatomyConfig(BaseModel):
     t1_path: str | None = None
+    t2_path: str | None = None
     freesurfer_subjects_dir: str | None = None
     freesurfer_subject_id: str | None = None
+
+
+class EfieldElectrode(BaseModel):
+    """One stim contact. Either a 10-20 name (resolved via SimNIBS's
+    EEG-positions atlas) or an explicit (x, y, z) in subject MRI space."""
+
+    name: str | None = None
+    position: list[float] | None = None
+    radius_mm: float = 12.0
+
+    @field_validator("position")
+    @classmethod
+    def _check_position(cls, v: list[float] | None) -> list[float] | None:
+        if v is not None and len(v) != 3:
+            raise ValueError("position must be [x, y, z] in mm")
+        return v
+
+
+class EfieldCarrierPair(BaseModel):
+    anode: EfieldElectrode
+    cathode: EfieldElectrode
+    current_mA: float = 1.0
+    label: str = "carrier"
+
+
+class EfieldMontage(BaseModel):
+    pair_a: EfieldCarrierPair
+    pair_b: EfieldCarrierPair
+
+
+class EfieldConfig(BaseModel):
+    enabled: bool = False
+    montage: EfieldMontage | None = None
+    head_model_dir: str | None = None
+    force_resegment: bool = False
+    visualize_3d: bool = True
+    contact_sampling_radius_mm: float = 2.0
+    fallback_to_template: bool = True
 
 
 class PipelineConfig(BaseModel):
@@ -179,6 +217,7 @@ class PipelineConfig(BaseModel):
     tfr: TFRConfig = Field(default_factory=TFRConfig)
     phase: PhaseConfig = Field(default_factory=PhaseConfig)
     connectivity: ConnectivityConfig = Field(default_factory=ConnectivityConfig)
+    efield: EfieldConfig = Field(default_factory=EfieldConfig)
     stats: StatsConfig = Field(default_factory=StatsConfig)
     report: ReportConfig = Field(default_factory=ReportConfig)
 

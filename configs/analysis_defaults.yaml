@@ -100,6 +100,15 @@ stats:
   n_permutations: 1000
   tail: 0
 
+efield:
+  enabled: false                    # opt-in; expensive (charm ~1–3 hr per subject)
+  montage: null                     # subject configs must populate
+  head_model_dir: null              # null -> derivatives_root/efield/m2m_<subject>
+  force_resegment: false
+  visualize_3d: true
+  contact_sampling_radius_mm: 2.0
+  fallback_to_template: true        # use SimNIBS Ernie head when t1_path is null
+
 report:
   enabled: true
   include_sections:

@@ -37,7 +37,7 @@ def bipolar_pairs_from_shanks(ch_names: list[str]) -> list[tuple[str, str]]:
         by_shank.setdefault(shank, []).append((idx, ch))
 
     pairs: list[tuple[str, str]] = []
-    for shank, entries in by_shank.items():
+    for _shank, entries in by_shank.items():
         entries.sort()
         for (idx_a, name_a), (idx_b, name_b) in zip(entries[:-1], entries[1:], strict=False):
             if idx_b == idx_a + 1:

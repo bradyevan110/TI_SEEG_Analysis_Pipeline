@@ -44,6 +44,15 @@ dependencies = [
 
 [project.optional-dependencies]
 notebooks = ["jupyterlab>=4.0", "ipywidgets>=8.1"]
+# SimNIBS itself is not on PyPI — install via the SimNIBS standalone installer
+# (https://simnibs.github.io/simnibs/build/html/installation/installation.html)
+# and run this pipeline inside the SimNIBS Python environment, or symlink the
+# bundled `simnibs` package into your venv. The `efield` extra here only pulls
+# the pip-installable peers (pyvista for 3D rendering); the lazy import in
+# `ti_seeg.source.efield` will surface a clear error if simnibs is missing.
+efield = [
+    "pyvista>=0.43",
+]
 dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
@@ -103,6 +112,9 @@ files = ["src/ti_seeg"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
+markers = [
+    "slow: long-running tests (FEM solve, segmentation)",
+]
 filterwarnings = [
     "ignore::DeprecationWarning:mne.*",
     "ignore::FutureWarning",
