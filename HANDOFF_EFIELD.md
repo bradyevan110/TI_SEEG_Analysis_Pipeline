@@ -2,13 +2,13 @@
 
 > **Purpose of this file:** self-contained briefing for the next Claude
 > session (or human collaborator) who picks up the `efield` pipeline
-> module. Reflects what has actually been implemented in PRs #12–#18
-> (plus sibling CI fix #19), not the original design plan. Read
-> alongside the main project handoff in [`HANDOFF.md`](HANDOFF.md).
+> module. Reflects what has actually been implemented in PRs #12–#18,
+> not the original design plan. Read alongside the main project
+> handoff in [`HANDOFF.md`](HANDOFF.md).
 >
-> **Last updated:** 2026-05-08 (after PRs #12–#18 stacked against
-> `main` + sibling lint-debt PR #19; stack rebased once onto the CI
-> uv-flag fix).
+> **Last updated:** 2026-05-11. Sibling PR #19 (standalone lint-debt
+> fix) was closed as duplicate — its content is folded into
+> `efield/step-1-schema`.
 >
 > **Tracking issue:**
 > [#11](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/issues/11)
@@ -28,36 +28,30 @@
 | docs | [#18](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/18) | open, stacked on #17 | This handoff document — rewrite as post-implementation briefing |
 | 7.7 | — | TODO | Real-MRI dry run on EMOP0649 (§9 of this doc) |
 
-Sibling PR (standalone CI-debt fix on `main`):
-
-| PR | Targets | What it fixes | Status |
-|---|---|---|---|
-| [#19](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/19) | `main` | Pre-existing ruff lint debt (8 errors → 0; CI was red on `main` since repo setup at 2026-04-24) + the same uv flag fix. | **CI ✓** |
-
-The same fixes are folded into the bottom of the efield stack
-(`efield/step-1-schema`), so the stack stands on its own without
-depending on #19. #19 is kept as a standalone fix in case the
-maintainer wants to clear `main`'s lint debt without landing the
-whole efield feature.
+Previously open sibling PR [#19](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/19)
+(standalone lint-debt fix targeting `main`) was **closed as duplicate**
+on 2026-05-11. Its two changes — the uv workflow fix and the 8 ruff
+lint fixes — are folded into the bottom of `efield/step-1-schema`, so
+the stack stands on its own. The `ci/fix-ruff-lint` branch is left in
+place in case the maintainer wants to re-open it to clear `main`'s
+CI without landing the whole feature.
 
 PRs are **stacked**: #13 targets #12, #14 targets #13, …, #18 targets
 #17. Merge in numeric order; each PR is self-contained but assumes
-its predecessors. The whole stack was rebased once after folding the
-CI workflow fix
-([3fde783](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/commit/3fde783),
-later squashed with the lint cherry-pick into a single commit on
-step-1) and a second time to apply `ruff format` to the new files
-introduced in steps 3–6.
+its predecessors. The stack was rebased twice during cleanup: once to
+fold the CI workflow + lint fixes into step-1
+([commit on `efield/step-1-schema`](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/commits/efield/step-1-schema)),
+and once to apply `ruff format` to the new files introduced in
+steps 3–6.
 
 **CI status (2026-05-11):**
 - PR #12 (the only stack PR targeting `main` directly) — green on
-  both ubuntu and macos py3.11 runners.
-- PR #19 — green on both runners.
+  both ubuntu-latest and macos-latest / py3.11 runners.
 - PRs #13–#18 don't run CI because the workflow trigger is
   `pull_request: branches: [main]` and these PRs target stack
-  branches, not main. When each is squash-merged into the next, the
-  new target branch's CI fires (and on the eventual squash-merge
-  into main, the post-merge `push: branches: [main]` CI run fires).
+  branches, not main. When each is squash-merged into main (or onto
+  the next stack PR rebased to main), the workflow fires on the new
+  base.
 
 Test count on the top branch (`efield/step-7-handoff-doc`):
 **39 collected, 38 pass, 1 skip** (pyvista not installed in the
@@ -330,9 +324,10 @@ so the stack stands on its own without depending on PR #19:
    annotation, nested `if` → `and`, missing `strict=` on `zip()`, and
    an unused loop variable. No behavior change.
 
-The same fixes also live on the `ci/fix-ruff-lint` branch ([PR #19](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/19))
-which targets `main` directly — useful if the maintainer wants to
-unblock `main`'s CI before/without landing the efield work.
+The same fixes also live on the `ci/fix-ruff-lint` branch
+(PR [#19](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/19),
+closed as duplicate 2026-05-11) — re-open and target `main` directly
+if you want to clear `main`'s CI without landing the whole feature.
 
 ### 3.11 New: [`tests/test_efield.py`](tests/test_efield.py)
 
@@ -675,8 +670,9 @@ Concrete steps (file paths assume current convention):
   (wire), [#16](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/16)
   (viz), [#17](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/17)
   (slow smoke), [#18](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/18)
-  (this doc), [#19](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/19)
-  (sibling — main lint debt).
+  (this doc). Sibling [#19](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/19)
+  (closed) carried the same CI/lint fixes as a standalone main-targeted
+  PR before they were folded into step-1.
 - CI fix commit:
   [3fde783](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/commit/3fde783)
   (uv flag conflict on `efield/step-1-schema`).
@@ -699,15 +695,13 @@ Concrete steps (file paths assume current convention):
 > (`HANDOFF_EFIELD.md`) at the repo root.
 >
 > **Stack state.** PRs #12–#17 implement steps 7.1–7.6 and are stacked
-> off `main`; PR #18 is this handoff doc on top of #17; PR #19 is a
-> sibling targeting `main` directly with the same CI/lint fixes that
-> are already folded into the bottom of the efield stack. Both PRs
-> that run CI (#12 and #19, the only stack PRs targeting `main`) are
-> green as of 2026-05-11. **Recommended merge order:** simplest is to
-> squash-merge #12 → #13 → #14 → #15 → #16 → #17 → #18 in numeric
-> order; #19 then becomes a no-op and can be closed. Alternatively
-> land #19 first if you want `main`'s CI green before reviewing the
-> larger feature stack.
+> off `main`; PR #18 is this handoff doc on top of #17. PR #19 (sibling
+> standalone lint-debt fix) was closed as duplicate — the same fixes
+> live on the bottom of the efield stack. PR #12 (the only stack PR
+> that runs CI, since the others target stack branches not `main`) is
+> green on ubuntu-latest + macos-latest / py3.11 as of 2026-05-11.
+> **Merge order:** squash-merge in numeric order
+> #12 → #13 → #14 → #15 → #16 → #17 → #18.
 >
 > **Next concrete work.** Step 7.7 in §9.1 — the EMOP0649 dry run.
 > Blocked on (a) the user supplying real stim-electrode names for the
