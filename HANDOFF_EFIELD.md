@@ -1,161 +1,217 @@
-# TI_SEEG_Analysis_Pipeline — E-Field Modeling Module (handoff)
+# TI_SEEG_Analysis_Pipeline — E-Field Modeling Module (post-implementation handoff)
 
-> **Purpose of this file:** self-contained briefing for the new `efield`
-> pipeline module. A fresh Claude session (or human collaborator) should be
-> able to implement the module from this document alone, without needing the
-> prior chat history. Read alongside the main project handoff in
-> [`HANDOFF.md`](HANDOFF.md).
+> **Purpose of this file:** self-contained briefing for the next Claude
+> session (or human collaborator) who picks up the `efield` pipeline
+> module. Reflects what has actually been implemented in PRs #12–#18,
+> not the original design plan. Read alongside the main project
+> handoff in [`HANDOFF.md`](HANDOFF.md).
 >
-> **Last updated:** 2026-05-06
+> **Last updated:** 2026-05-11. Sibling PR #19 (standalone lint-debt
+> fix) was closed as duplicate — its content is folded into
+> `efield/step-1-schema`.
 >
-> **Related GitHub issues:** v2 backlog item in
-> [#10](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/issues/10);
-> open a fresh issue *"Implement v1 TI E-field modeling module"* and link it
-> from #10's checklist before starting.
+> **Tracking issue:**
+> [#11](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/issues/11)
 
 ---
 
-## 0. TL;DR
+## 0. Status at a glance
 
-Build a new opt-in pipeline step `efield` that takes a subject's T1 (and
-optional T2) MRI plus a TI scalp-stim montage, runs SimNIBS 4.x to compute
-the per-carrier E-field via FEM, derives the Grossman-2017 max-modulation
-TI envelope, samples the envelope at SEEG contact positions, and renders 3D
-visualizations into the existing `report.html`.
+| Step | PR | State | What landed |
+|---|---|---|---|
+| 7.1 | [#12](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/12) | open / awaiting review | `EfieldConfig` family + `t2_path` + `efield` extra + YAML defaults + `slow` marker |
+| 7.2 | [#13](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/13) | open, stacked on #12 | `_step_efield` registered with `NotImplementedError` |
+| 7.3 | [#14](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/14) | open, stacked on #13 | `src/ti_seeg/source/efield.py` core wrapper (subprocess) + 9 unit tests |
+| 7.4 | [#15](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/15) | open, stacked on #14 | `_step_efield` wired to call charm + FEM + envelope + sampling |
+| 7.5 | [#16](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/16) | open, stacked on #15 | `efield_plots.py` (orthoslice + 3D pyvista + per-contact bar) + report integration |
+| 7.6 | [#17](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/17) | open, stacked on #16 | `@pytest.mark.slow` end-to-end smoke gated on `$TI_SEEG_M2M_DIR` |
+| docs | [#18](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/18) | open, stacked on #17 | This handoff document — rewrite as post-implementation briefing |
+| 7.7 | — | TODO | Real-MRI dry run on EMOP0649 (§9 of this doc) |
 
-- **Tool:** SimNIBS 4.x (Python API + bundled FEM solvers).
-- **Install:** new optional extra group `[project.optional-dependencies] efield = […]`. Default install stays light.
-- **MRI fallback:** when subject T1 is missing, simulate on SimNIBS's bundled
-  `Ernie` template head with a loud warning that anatomy is normalized.
-- **Caching:** segmentation (`charm`) is the slow step (~1–3 hr); cache m2m
-  output under `<derivatives_root>/efield/m2m_<subject>/` and reuse on
-  subsequent runs.
-- **Scope:** full pipeline — segmentation + FEM solve + envelope + 3D viz +
-  per-contact sampling. No optimization, no validation analyses, no
-  interactive viewer (those are follow-up issues).
+Previously open sibling PR [#19](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/19)
+(standalone lint-debt fix targeting `main`) was **closed as duplicate**
+on 2026-05-11. Its two changes — the uv workflow fix and the 8 ruff
+lint fixes — are folded into the bottom of `efield/step-1-schema`, so
+the stack stands on its own. The `ci/fix-ruff-lint` branch is left in
+place in case the maintainer wants to re-open it to clear `main`'s
+CI without landing the whole feature.
 
----
+PRs are **stacked**: #13 targets #12, #14 targets #13, …, #18 targets
+#17. Merge in numeric order; each PR is self-contained but assumes
+its predecessors. The stack was rebased twice during cleanup: once to
+fold the CI workflow + lint fixes into step-1
+([commit on `efield/step-1-schema`](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/commits/efield/step-1-schema)),
+and once to apply `ruff format` to the new files introduced in
+steps 3–6.
 
-## 1. Why this matters scientifically
+**CI status (2026-05-11):**
+- PR #12 (the only stack PR targeting `main` directly) — green on
+  both ubuntu-latest and macos-latest / py3.11 runners.
+- PRs #13–#18 don't run CI because the workflow trigger is
+  `pull_request: branches: [main]` and these PRs target stack
+  branches, not main. When each is squash-merged into main (or onto
+  the next stack PR rebased to main), the workflow fires on the new
+  base.
 
-In a temporal-interference paradigm, two pairs of scalp electrodes carry
-high-frequency carriers (e.g., 2000 Hz and 2130 Hz) whose interference
-produces a low-frequency *envelope* (e.g., 130 Hz) that — in theory —
-preferentially activates deep tissue at the geometric overlap of the two
-fields. The envelope frequency is what we expect to entrain neurons.
+Test count on the top branch (`efield/step-7-handoff-doc`):
+**39 collected, 38 pass, 1 skip** (pyvista not installed in the
+project venv; skipped cleanly).
 
-For SEEG analysis this matters in two ways:
-
-1. **Predicted hotspot localization.** A 3D E-field map tells us *where*
-   the envelope is strong. For the EMOP0649 amygdala-targeted protocol,
-   the envelope should peak near amygdala/hippocampus and fall off
-   elsewhere. This becomes ground truth for *which* SEEG contacts ought to
-   show entrainment.
-2. **Artifact disambiguation.** The TI envelope appears in iEEG recordings
-   directly (tissue rectification at the stim site) at the same frequency
-   we want to study (130 Hz / 5 Hz). Knowing the predicted field magnitude
-   per contact helps separate "this contact records the envelope passively
-   because the field is strong here" from "this contact actually shows
-   neural entrainment locked to the envelope" — a non-trivial distinction
-   the surrogate-PLV step can't fully resolve on its own.
-
-The Grossman 2017 envelope formula (their max-amplitude modulation across
-arbitrary direction `n̂`) is the standard:
-
-```
-E_TI(r) = max over n̂ of  | |E_a(r)·n̂| − |E_b(r)·n̂| |
-```
-
-SimNIBS 4 exposes this directly via `simnibs.utils.TI.get_maxTI(field_a,
-field_b)`, returning a per-element scalar on the head mesh.
+`efield.enabled=false` is the default; the rest of the pipeline runs
+unchanged for users who don't opt in.
 
 ---
 
-## 2. Repository state at the time of this handoff
+## 1. Local environment
 
-- Pipeline scaffold from `HANDOFF.md` v2 is in place and **all 25 unit tests
-  pass** (see `git log` after commit `ac95ab1`).
-- The E-field stub at
-  [`src/ti_seeg/source/localization.py:102`](src/ti_seeg/source/localization.py)
-  raises `NotImplementedError`. Sibling function
-  `project_contact_values_to_t1` (lines 21–99) is the volume-projection
-  prior art and shows the nibabel idiom we'll reuse.
-- The visualization layer is matplotlib-only.
-  [`src/ti_seeg/visualization/report.py`](src/ti_seeg/visualization/report.py)
-  exposes `ReportBuilder.add_figure(fig: plt.Figure, …)`; pyvista renderings
-  must therefore be wrapped as PNG → matplotlib `imshow` to integrate.
-- [`src/ti_seeg/visualization/plots.py:100`](src/ti_seeg/visualization/plots.py)
-  has `plot_contacts_on_brain` — a 2D triplet of orthogonal scatter views.
-  Acceptable as a fallback when no T1 / mesh available.
-- The pipeline orchestrator
-  [`src/ti_seeg/pipeline/run.py`](src/ti_seeg/pipeline/run.py) defines
-  `AVAILABLE_STEPS` (lines 44–54), `STEP_REGISTRY` (lines 308–318), and
-  `RunContext` (lines 57–97). The closest structural analog for our new
-  step is `_step_anatomy` at line 131.
-- [`src/ti_seeg/config.py`](src/ti_seeg/config.py) holds the pydantic v2
-  schema. `AnatomyConfig` is at lines 145–148 and currently lacks a
-  `t2_path` field. `PipelineConfig` composes child configs at lines 151–179.
-- [`pyproject.toml`](pyproject.toml) has `nilearn>=0.10` and `nibabel>=5.0`
-  in main deps already. SimNIBS and pyvista are not yet listed.
+This module was developed against a specific local SimNIBS install on the
+maintainer's machine. The discovery code falls back to standard locations
+elsewhere.
+
+- **SimNIBS install:** `/Users/ebrady/Applications/SimNIBS-4.6/`
+  - CLI binaries: `bin/{charm,simnibs,simnibs_python,simnibs_gui,…}`
+  - Bundled Python: `simnibs_env/bin/python` → Python **3.11.14**
+  - `simnibs.SIMNIBSDIR` resolves to `simnibs_env/lib/python3.11/site-packages/simnibs`
+- **Project venv:** Python **3.10.0** at `.venv/` (managed by `uv`).
+- **Why two Pythons:** SimNIBS 4.6 ships its own conda env with compiled
+  C extensions tied to its bundled deps. Mixing them via PYTHONPATH or
+  `pip install simnibs` into our venv is unsupported, and SimNIBS isn't
+  on PyPI in any case. The module **shells out** instead.
+- **Precomputed reference m2m heads** (the maintainer's TI-Toolbox repo):
+  Both folders below are **partial** — neither has a `<sub>.msh` head
+  mesh, so neither is usable as a `$TI_SEEG_M2M_DIR` fixture for the
+  slow smoke test until charm is re-run to completion.
+  - `…/derivatives/SimNIBS/sub-ernie/m2m_ernie/` — has only `T1.nii.gz`
+    + `settings.ini` + `charm_log.html`.
+  - `…/derivatives/SimNIBS/sub-MNI152/m2m_MNI152/` — further along
+    (has `label_prep/`, `segmentation/`, `surfaces/`, `toMNI/`) but
+    still no head mesh.
+  - `…/sub-ernie/anat/sub-ernie_T1w.nii` is a usable T1 for running
+    charm fresh; the maintainer can produce a complete `m2m_ernie/`
+    in 1–3 hr from this file.
 
 ---
 
-## 3. Architecture
+## 2. Architecture as built (deviates from original plan)
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ ti_seeg/pipeline/run.py                                          │
-│  _step_efield(ctx)  ──┬──► ti_seeg/source/efield.py              │
-│                       │     • build_head_model()                 │
-│                       │     • mni_template_m2m_dir()             │
-│                       │     • simulate_carrier_pair()            │
-│                       │     • compute_ti_envelope()              │
-│                       │     • sample_efield_at_contacts()        │
-│                       │                                          │
-│                       └──► ti_seeg/visualization/efield_plots.py │
-│                             • plot_efield_orthoslice()  (nilearn)│
-│                             • plot_efield_3d_mesh()    (pyvista) │
-│                             • plot_per_contact_envelope() (mpl)  │
+│  ti_seeg.pipeline.run._step_efield  (in our venv, Python 3.10)   │
+│        │                                                          │
+│        ├── ti_seeg.source.efield                                 │
+│        │     find_simnibs_dir   ─┐                                │
+│        │     build_head_model    │  subprocess(`charm` CLI)       │
+│        │     simulate_carrier_pair─┐                              │
+│        │     compute_ti_envelope ─┼──► subprocess                 │
+│        │     export_envelope_surface─┘   (`simnibs_python -c`)    │
+│        │                                                          │
+│        │     sample_efield_at_contacts  (pure-numpy + nibabel)    │
+│        │     template_m2m_dir            (filesystem checks)      │
+│        │                                                          │
+│        └── ti_seeg.visualization.efield_plots                     │
+│              plot_efield_orthoslice     (nilearn, no SimNIBS)     │
+│              plot_efield_3d_mesh        (pyvista, reads .npz)     │
+│              plot_per_contact_envelope  (matplotlib)              │
 └──────────────────────────────────────────────────────────────────┘
-                          │
-                          ▼ outputs to
-                <derivatives>/efield/
-                ├─ m2m_<subject>/        (cached charm output)
-                ├─ pair_a/               (SimNIBS sim outputs)
-                ├─ pair_b/
-                ├─ ti_envelope.nii.gz    (volume)
-                ├─ ti_envelope.msh       (mesh-attached)
-                └─ ti_per_contact.tsv
+                                │
+                                ▼ outputs to
+                  <derivatives>/sub-X/…/efield/
+                  ├─ m2m_<subject>/        (cached charm output if T1 supplied)
+                  ├─ pair_a/               (FEM solve outputs for pair_a)
+                  │   ├─ <sub>_TDCS_1_scalar.msh
+                  │   └─ subject_volumes/<sub>_TDCS_1_scalar_E.nii.gz
+                  ├─ pair_b/               (same for pair_b)
+                  ├─ ti_envelope.msh       (mesh-attached envelope)
+                  ├─ ti_envelope.nii.gz    (rasterized onto T1 grid)
+                  ├─ ti_envelope_surface.npz  (portable for pyvista)
+                  └─ ti_per_contact.tsv
 ```
 
-Lazy import boundaries: `efield.py` imports `simnibs` and `pyvista` only
-inside function bodies (or guarded by a `try/except ImportError`). This
-keeps `import ti_seeg` cheap when the extra isn't installed and lets the
-CLI's `validate` command keep working in lean installs.
+### Why subprocess shell-out (the big deviation)
+
+The original handoff specified `import simnibs` with lazy imports. That
+doesn't work because SimNIBS's bundled Python and our venv's Python are
+different versions and have separate compiled stacks. The implemented
+pattern:
+
+- `<simnibs_dir>/bin/charm <subID> <T1> [T2]` — direct CLI invocation
+  (charm has no Python API entry point we benefit from anyway).
+- `<simnibs_dir>/bin/simnibs_python -c "<inline script>"` — small inline
+  Python snippets that build a `sim_struct.SESSION`, call
+  `simnibs.utils.TI.get_maxTI`, or read mesh fields. Inputs/outputs are
+  passed via JSON-encoded payloads and files on disk.
+- All file I/O downstream (NIfTI sampling, plotting) happens in our
+  venv. The portable `.npz` produced by `export_envelope_surface` is the
+  bridge: surface points + cells + envelope scalars, no SimNIBS needed
+  to render.
+
+Trade-offs:
+
+| Benefit | Cost |
+|---|---|
+| Two envs cleanly isolated; no version coupling | One subprocess per SimNIBS call (~100–500 ms overhead each) |
+| User can upgrade SimNIBS without breaking project | Errors come back as captured stderr, not Python tracebacks |
+| Pipeline keeps working in any installs that lack SimNIBS | Inline scripts are harder to debug than imported code |
+
+If a future SimNIBS release publishes proper PyPI wheels with a Python
+range that includes 3.10/3.12, the subprocess wrappers can collapse
+back to in-process imports without changing the public function
+signatures.
 
 ---
 
-## 4. Configuration schema (pydantic v2)
+## 3. File-by-file map
 
-All new models go in [`src/ti_seeg/config.py`](src/ti_seeg/config.py). Add
-imports of `tuple` types from `typing` if you need them; otherwise the
-existing `BaseModel`/`Field` imports are sufficient.
+### 3.1 New: [`src/ti_seeg/source/efield.py`](src/ti_seeg/source/efield.py)
+
+Public surface (all in `__all__`):
+
+| Function | Line | Side effects |
+|---|---|---|
+| `find_simnibs_dir(explicit=None) -> Path` | [efield.py:36](src/ti_seeg/source/efield.py:36) | Pure (filesystem reads). Searches: explicit > `$SIMNIBSDIR` (and parents) > `~/Applications/SimNIBS-*` > `/Applications/SimNIBS-*`. Raises `FileNotFoundError` if nothing matches. |
+| `build_head_model(t1_path, t2_path, m2m_parent, subject_id, simnibs_dir, force=False) -> Path` | [efield.py:95](src/ti_seeg/source/efield.py:95) | Shells out to `charm`. Cwd set to `m2m_parent` so `m2m_<sub>/` lands there. Skips if `<sub>.msh` exists and `force=False`. |
+| `template_m2m_dir(efield_template_path) -> Path` | [efield.py:131](src/ti_seeg/source/efield.py:131) | Resolve fallback head model. Raises with a useful pointer if `efield.template_m2m_dir` is unset. |
+| `simulate_carrier_pair(m2m_dir, pair, out_dir, simnibs_dir, force=False) -> tuple[Path, Path]` | [efield.py:167](src/ti_seeg/source/efield.py:167) | One FEM solve. Returns `(mesh_path, nifti_path)`. Cached: skips if expected outputs already exist. |
+| `compute_ti_envelope(field_a_msh, field_b_msh, out_dir, simnibs_dir, reference_volume=None) -> tuple[Path, Path]` | [efield.py:235](src/ti_seeg/source/efield.py:235) | Reads two SimNIBS meshes, calls `TI.get_maxTI`, writes `ti_envelope.msh` and (if `reference_volume`) `ti_envelope.nii.gz`. |
+| `sample_efield_at_contacts(envelope_nifti, electrodes, radius_mm=2.0) -> pd.DataFrame` | [efield.py:290](src/ti_seeg/source/efield.py:290) | Pure numpy + nibabel. Sphere-mean per contact in voxel space. Returns `[name, envelope_mean, envelope_max, n_voxels]`. Skips NaN / 'n/a' / out-of-volume rows with one aggregated warning. |
+| `export_envelope_surface(envelope_msh, out_path, simnibs_dir, grey_matter_tag=1002) -> Path` | [efield.py:359](src/ti_seeg/source/efield.py:359) | Shells out to extract grey-matter triangles + scalars to a portable `.npz`. Mesh tag is configurable (1002 is the SimNIBS 4 default). |
+
+Private helpers:
+
+- `_simnibs_python(simnibs_dir)` / `_charm_bin(simnibs_dir)` — path
+  builders for the bundled binaries.
+- `_run_simnibs_script(simnibs_dir, script, *, cwd=None)` —
+  `subprocess.run([_simnibs_python, "-c", script], …)`. Captures
+  stdout/stderr; raises `RuntimeError` with both streams on non-zero
+  exit. Always log-debugs the captured stdout when present.
+- `_expected_sim_outputs(out_dir, subid)` — predicts the
+  SimNIBS-default output filenames so we can skip when cached.
+
+### 3.2 New: [`src/ti_seeg/visualization/efield_plots.py`](src/ti_seeg/visualization/efield_plots.py)
+
+| Function | Line | Notes |
+|---|---|---|
+| `plot_efield_orthoslice(envelope_nifti, t1_bg=None, threshold=None, title)` | [efield_plots.py:25](src/ti_seeg/visualization/efield_plots.py:25) | nilearn `plot_stat_map`. Background T1 dropped if file missing. |
+| `plot_efield_3d_mesh(surface_npz, contacts_df=None, title, contact_radius_mm=2.0)` | [efield_plots.py:49](src/ti_seeg/visualization/efield_plots.py:49) | Reads `points`/`cells`/`scalars` from the npz. `pv.OFF_SCREEN=True` and `PYVISTA_OFF_SCREEN=true` set before instantiating the Plotter. Filters non-numeric contact coords. Returns a matplotlib Figure wrapping the pyvista screenshot (so `ReportBuilder.add_figure` works). |
+| `plot_per_contact_envelope(per_contact, roi_groups=None, title)` | [efield_plots.py:124](src/ti_seeg/visualization/efield_plots.py:124) | Bar chart sorted desc by `envelope_mean`. Empty input → "No data" placeholder figure. Uses `set_xticks` + `set_xticklabels` to silence matplotlib warning. |
+
+Importing this module **does not** import SimNIBS or pyvista. Pyvista is
+only imported inside `plot_efield_3d_mesh`, with a clean `ImportError`
+pointing at `uv sync --extra efield` when missing.
+
+### 3.3 Modified: [`src/ti_seeg/config.py`](src/ti_seeg/config.py)
+
+New pydantic models (`EfieldElectrode` at line [156](src/ti_seeg/config.py:156),
+`EfieldCarrierPair` at line [172](src/ti_seeg/config.py:172),
+`EfieldMontage` at line [179](src/ti_seeg/config.py:179),
+`EfieldConfig` at line [184](src/ti_seeg/config.py:184)):
 
 ```python
 class EfieldElectrode(BaseModel):
-    """One stim contact. Either a 10-20 name (resolved via SimNIBS's
-    EEG-positions atlas) or an explicit (x, y, z) in subject MRI space."""
-    name: str | None = None
-    position: list[float] | None = None  # [x, y, z] in mm, MRI space
-    radius_mm: float = 12.0              # SimNIBS tDCS pad default
-
-    @field_validator("position")
-    @classmethod
-    def _check_position(cls, v: list[float] | None) -> list[float] | None:
-        if v is not None and len(v) != 3:
-            raise ValueError("position must be [x, y, z] in mm")
-        return v
-
+    name: str | None = None              # 10-20 atlas name OR
+    position: list[float] | None = None  # [x, y, z] in subject MRI mm
+    radius_mm: float = 12.0
+    @field_validator("position")         # enforces 3-vector
 
 class EfieldCarrierPair(BaseModel):
     anode: EfieldElectrode
@@ -163,993 +219,468 @@ class EfieldCarrierPair(BaseModel):
     current_mA: float = 1.0
     label: str = "carrier"
 
-
 class EfieldMontage(BaseModel):
     pair_a: EfieldCarrierPair
     pair_b: EfieldCarrierPair
 
-
 class EfieldConfig(BaseModel):
     enabled: bool = False
     montage: EfieldMontage | None = None
-    head_model_dir: str | None = None        # explicit cache path; null = use derivatives default
-    force_resegment: bool = False
+    head_model_dir: str | None = None         # parent dir for m2m_<sub>; null -> efield/
+    force_resegment: bool = False             # also forces re-FEM
     visualize_3d: bool = True
     contact_sampling_radius_mm: float = 2.0
-    fallback_to_template: bool = True        # use Ernie when t1_path is null
+    fallback_to_template: bool = True
+    simnibs_dir: str | None = None            # /path/to/SimNIBS-4.x; null -> auto-discover
+    template_m2m_dir: str | None = None       # required when t1_path is null + fallback_to_template
 ```
 
-Edit `AnatomyConfig` to add `t2_path`:
-
-```python
-class AnatomyConfig(BaseModel):
-    t1_path: str | None = None
-    t2_path: str | None = None              # NEW
-    freesurfer_subjects_dir: str | None = None
-    freesurfer_subject_id: str | None = None
-```
-
-Wire into `PipelineConfig` between `connectivity` and `stats`:
-
-```python
-efield: EfieldConfig = Field(default_factory=EfieldConfig)
-```
-
----
-
-## 5. SimNIBS integration specifics
-
-> **Version target:** SimNIBS 4.1+ (the Python API stabilized at 4.0;
-> earlier 3.x versions had a substantially different API and should not be
-> supported).
-
-### 5.1 Head segmentation (`charm`)
-
-SimNIBS exposes `simnibs.charm.run_charm` (or the CLI `charm`). Python:
-
-```python
-from simnibs import charm
-charm.run_charm(
-    subid="<subject_id>",
-    T1=str(t1_path),
-    T2=str(t2_path) if t2_path else None,
-    forceqform=True,
-    forcerun=True if force else False,
-)
-```
-
-`charm` writes outputs to `m2m_<subid>/` in the **current working
-directory** unless overridden. Wrap with a `chdir`-context-manager (or pass
-`os.chdir(parent_of_m2m)` and restore) so the m2m folder lands under
-`<derivatives>/efield/`.
-
-Expected outputs (presence check before skipping):
-- `m2m_<subid>/<subid>.msh` — head mesh (tetrahedral)
-- `m2m_<subid>/T1.nii.gz` — registered T1
-- `m2m_<subid>/segmentation/labeling.nii.gz` — tissue segmentation
-- `m2m_<subid>/eeg_positions/EEG10-10_UI_Jurak_2007.csv` — 10-20 atlas
-  positions in subject space (used for resolving electrode names)
-
-### 5.2 FEM simulation per carrier pair
-
-SimNIBS 4 simulation API:
-
-```python
-from simnibs import sim_struct, run_simnibs
-
-s = sim_struct.SESSION()
-s.subpath = str(m2m_dir)               # m2m_<subid> directory
-s.pathfem = str(out_dir)               # where SimNIBS writes the .msh + .nii.gz
-s.fields = "vDeE"                       # save voltage, E vector, E magnitude
-
-tdcs = s.add_tdcslist()
-tdcs.currents = [pair.current_mA * 1e-3, -pair.current_mA * 1e-3]  # Amps
-tdcs.anisotropy_type = "scalar"        # use isotropic conductivities; "vn" needs DTI
-
-el_anode = tdcs.add_electrode()
-el_anode.channelnr = 1
-el_anode.centre = pair.anode.name or pair.anode.position  # str OR [x,y,z]
-el_anode.shape = "ellipse"
-el_anode.dimensions = [pair.anode.radius_mm * 2, pair.anode.radius_mm * 2]
-el_anode.thickness = [4.0]              # mm; sponge thickness
-
-el_cathode = tdcs.add_electrode()
-el_cathode.channelnr = 2
-el_cathode.centre = pair.cathode.name or pair.cathode.position
-el_cathode.shape = "ellipse"
-el_cathode.dimensions = [pair.cathode.radius_mm * 2, pair.cathode.radius_mm * 2]
-el_cathode.thickness = [4.0]
-
-run_simnibs(s)
-```
-
-Outputs of interest:
-- `<out_dir>/<subid>_TDCS_1_scalar.msh` — mesh with E vector / magnitude attached
-- `<out_dir>/subject_volumes/<subid>_TDCS_1_scalar_E.nii.gz` — volumetric E-vector NIfTI
-
-Run once per carrier pair (so two simulations total per subject per
-config). Cache the outputs and skip re-running when present.
-
-### 5.3 TI envelope
-
-```python
-from simnibs.utils import TI
-import simnibs.mesh_io as mesh_io
-
-m_a = mesh_io.read_msh(field_a_msh)
-m_b = mesh_io.read_msh(field_b_msh)
-
-# Both meshes share a topology (same head model). Pull the E-vector field.
-e_a = m_a.field["E"].value          # shape (n_elements, 3), V/m
-e_b = m_b.field["E"].value
-
-ti_envelope = TI.get_maxTI(e_a, e_b) # shape (n_elements,), V/m
-
-# Attach back to the mesh and save.
-m_out = m_a
-m_out.add_element_field(ti_envelope, "TI_max_envelope")
-m_out.write(out_dir / "ti_envelope.msh")
-
-# Also export to NIfTI for nilearn-friendly visualization.
-mesh_io.mesh_to_nifti(
-    m_out, field_name="TI_max_envelope",
-    out_path=out_dir / "ti_envelope.nii.gz",
-    reference_volume=str(m2m_dir / "T1.nii.gz"),
-)
-```
-
-### 5.4 Per-contact sampling
-
-```python
-import nibabel as nib
-import numpy as np
-
-img = nib.load(str(envelope_nifti))
-data = img.get_fdata()
-inv_aff = np.linalg.inv(img.affine)
-
-results = []
-for _, row in electrodes.iterrows():
-    if pd.isna(row.x) or row.x == "n/a":
-        continue
-    mri_xyz = np.array([float(row.x), float(row.y), float(row.z), 1.0])
-    vox_xyz = inv_aff @ mri_xyz
-    i, j, k = np.round(vox_xyz[:3]).astype(int)
-    # Sphere of radius_mm around (i,j,k); average the envelope inside.
-    spacing = np.array(img.header.get_zooms()[:3])
-    r_vox = np.ceil(radius_mm / spacing).astype(int)
-    sub = data[
-        max(0, i-r_vox[0]):i+r_vox[0]+1,
-        max(0, j-r_vox[1]):j+r_vox[1]+1,
-        max(0, k-r_vox[2]):k+r_vox[2]+1,
-    ]
-    results.append({"name": row["name"], "envelope_mean": float(sub.mean())})
-
-per_contact = pd.DataFrame(results)
-```
-
-Skip rows whose `x/y/z` are NaN or the literal string `"n/a"` — emit a warning naming the count.
-
----
-
-## 6. File-by-file implementation guide
-
-### 6.1 New file: `src/ti_seeg/source/efield.py`
-
-Approximate shape (~250 LOC):
-
-```python
-"""TI E-field modeling via SimNIBS 4.x.
-
-All public functions lazy-import simnibs to keep the rest of the pipeline
-usable without the optional `efield` extra installed.
-"""
-
-from __future__ import annotations
-from contextlib import contextmanager
-from pathlib import Path
-import os
-import warnings
-
-import numpy as np
-import pandas as pd
-
-from ..config import EfieldCarrierPair
-from ..logging import get_logger
-
-log = get_logger("source.efield")
-
-
-def _require_simnibs():
-    try:
-        import simnibs  # noqa: F401
-    except ImportError as e:
-        raise ImportError(
-            "SimNIBS is required for the efield step. Install with:\n"
-            "  uv sync --extra efield\n"
-            "or follow https://simnibs.github.io/simnibs/build/html/installation/installation.html"
-        ) from e
-
-
-@contextmanager
-def _chdir(path: Path):
-    prev = Path.cwd()
-    os.chdir(path)
-    try:
-        yield
-    finally:
-        os.chdir(prev)
-
-
-def build_head_model(
-    t1_path: str | Path,
-    t2_path: str | Path | None,
-    m2m_parent: Path,
-    subject_id: str,
-    force: bool = False,
-) -> Path:
-    """Run SimNIBS charm. Returns path to m2m_<subject_id> directory.
-
-    No-op if the directory already contains a complete segmentation
-    (head mesh present) and `force` is False.
-    """
-    _require_simnibs()
-    from simnibs import charm
-
-    m2m_dir = m2m_parent / f"m2m_{subject_id}"
-    head_msh = m2m_dir / f"{subject_id}.msh"
-    if head_msh.exists() and not force:
-        log.info("Head model exists at %s; skipping charm.", m2m_dir)
-        return m2m_dir
-
-    m2m_parent.mkdir(parents=True, exist_ok=True)
-    log.warning("Running SimNIBS charm; this typically takes 1–3 hours.")
-    with _chdir(m2m_parent):
-        charm.run_charm(
-            subid=subject_id,
-            T1=str(t1_path),
-            T2=str(t2_path) if t2_path else None,
-            forceqform=True,
-            forcerun=force,
-        )
-    if not head_msh.exists():
-        raise RuntimeError(f"charm did not produce {head_msh}")
-    return m2m_dir
-
-
-def mni_template_m2m_dir() -> Path:
-    """Locate the bundled Ernie m2m as a fallback when the subject has no T1."""
-    _require_simnibs()
-    import simnibs
-    candidate = Path(simnibs.SIMNIBSDIR) / "resources" / "examples" / "ernie" / "m2m_ernie"
-    if not candidate.exists():
-        raise FileNotFoundError(
-            f"Ernie template not found at {candidate}. "
-            "Install SimNIBS examples or set efield.fallback_to_template=False."
-        )
-    log.warning(
-        "Using Ernie template head — anatomy is NOT this subject's. "
-        "Per-contact predictions are normalized/approximate."
-    )
-    return candidate
-
-
-def simulate_carrier_pair(
-    m2m_dir: Path,
-    pair: EfieldCarrierPair,
-    out_dir: Path,
-    force: bool = False,
-) -> tuple[Path, Path]:
-    """Run one tDCS-style FEM simulation for a carrier pair.
-
-    Returns (mesh_path, nifti_path) for the resulting E-field outputs.
-    """
-    _require_simnibs()
-    from simnibs import sim_struct, run_simnibs
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    subid = m2m_dir.name.removeprefix("m2m_")
-    expected_msh = out_dir / f"{subid}_TDCS_1_scalar.msh"
-    expected_nii = out_dir / "subject_volumes" / f"{subid}_TDCS_1_scalar_E.nii.gz"
-    if expected_msh.exists() and expected_nii.exists() and not force:
-        log.info("Simulation outputs exist at %s; skipping FEM solve.", out_dir)
-        return expected_msh, expected_nii
-
-    s = sim_struct.SESSION()
-    s.subpath = str(m2m_dir)
-    s.pathfem = str(out_dir)
-    s.fields = "vDeE"
-    s.map_to_vol = True
-
-    tdcs = s.add_tdcslist()
-    tdcs.currents = [pair.current_mA * 1e-3, -pair.current_mA * 1e-3]
-    tdcs.anisotropy_type = "scalar"
-
-    for i, el_cfg in enumerate([pair.anode, pair.cathode]):
-        el = tdcs.add_electrode()
-        el.channelnr = i + 1
-        el.centre = el_cfg.name if el_cfg.name else el_cfg.position
-        el.shape = "ellipse"
-        el.dimensions = [el_cfg.radius_mm * 2, el_cfg.radius_mm * 2]
-        el.thickness = [4.0]
-
-    log.info("Running FEM solve for pair %r (current=%.1f mA)…", pair.label, pair.current_mA)
-    run_simnibs(s)
-    return expected_msh, expected_nii
-
-
-def compute_ti_envelope(
-    field_a_msh: Path,
-    field_b_msh: Path,
-    out_dir: Path,
-    reference_volume: Path | None = None,
-) -> tuple[Path, Path]:
-    """Combine two carrier-pair simulations into the Grossman 2017 max-modulation
-    TI envelope. Returns (envelope_msh, envelope_nifti) paths."""
-    _require_simnibs()
-    from simnibs.utils import TI
-    import simnibs.mesh_io as mesh_io
-
-    m_a = mesh_io.read_msh(str(field_a_msh))
-    m_b = mesh_io.read_msh(str(field_b_msh))
-
-    e_a = m_a.field["E"].value
-    e_b = m_b.field["E"].value
-    envelope = TI.get_maxTI(e_a, e_b)
-
-    out_msh = out_dir / "ti_envelope.msh"
-    out_nii = out_dir / "ti_envelope.nii.gz"
-
-    m_a.add_element_field(envelope, "TI_max_envelope")
-    m_a.write(str(out_msh))
-
-    if reference_volume:
-        mesh_io.mesh_to_nifti(
-            m_a,
-            field_name="TI_max_envelope",
-            out_path=str(out_nii),
-            reference_volume=str(reference_volume),
-        )
-    return out_msh, out_nii
-
-
-def sample_efield_at_contacts(
-    envelope_nifti: Path,
-    electrodes: pd.DataFrame,
-    radius_mm: float = 2.0,
-) -> pd.DataFrame:
-    """Per SEEG contact, return mean envelope amplitude in a sphere of radius_mm.
-
-    Skips rows with NaN / 'n/a' coordinates. Returns DataFrame with columns
-    [name, envelope_mean, envelope_max, n_voxels].
-    """
-    import nibabel as nib
-
-    if not {"name", "x", "y", "z"}.issubset(electrodes.columns):
-        log.warning("electrodes.tsv lacks x/y/z; cannot sample envelope per contact.")
-        return pd.DataFrame(columns=["name", "envelope_mean", "envelope_max", "n_voxels"])
-
-    img = nib.load(str(envelope_nifti))
-    data = img.get_fdata()
-    inv_aff = np.linalg.inv(img.affine)
-    spacing = np.array(img.header.get_zooms()[:3])
-    r_vox = np.ceil(radius_mm / spacing).astype(int)
-
-    rows: list[dict] = []
-    n_skipped = 0
-    for _, row in electrodes.iterrows():
-        try:
-            x, y, z = float(row["x"]), float(row["y"]), float(row["z"])
-        except (TypeError, ValueError):
-            n_skipped += 1
-            continue
-        if any(np.isnan([x, y, z])):
-            n_skipped += 1
-            continue
-        vox = inv_aff @ np.array([x, y, z, 1.0])
-        i, j, k = np.round(vox[:3]).astype(int)
-        sub = data[
-            max(0, i - r_vox[0]):i + r_vox[0] + 1,
-            max(0, j - r_vox[1]):j + r_vox[1] + 1,
-            max(0, k - r_vox[2]):k + r_vox[2] + 1,
-        ]
-        if sub.size == 0:
-            n_skipped += 1
-            continue
-        rows.append({
-            "name": row["name"],
-            "envelope_mean": float(sub.mean()),
-            "envelope_max": float(sub.max()),
-            "n_voxels": int(sub.size),
-        })
-
-    if n_skipped:
-        log.warning("Skipped %d/%d contacts with missing/invalid coords.", n_skipped, len(electrodes))
-
-    return pd.DataFrame(rows)
-```
-
-### 6.2 New file: `src/ti_seeg/visualization/efield_plots.py`
-
-```python
-"""3D visualization helpers for TI E-field outputs."""
-
-from __future__ import annotations
-from pathlib import Path
-import tempfile
-
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-
-from ..logging import get_logger
-
-log = get_logger("visualization.efield_plots")
-
-
-def plot_efield_orthoslice(
-    envelope_nifti: Path,
-    t1_bg: Path | None = None,
-    threshold: float | None = None,
-    title: str = "TI envelope",
-) -> plt.Figure:
-    """Three orthogonal slices through the envelope volume, optionally
-    overlaid on the subject T1. Uses nilearn (already a main dep)."""
-    from nilearn import plotting
-
-    fig = plt.figure(figsize=(12, 4))
-    plotting.plot_stat_map(
-        str(envelope_nifti),
-        bg_img=str(t1_bg) if t1_bg else None,
-        threshold=threshold,
-        title=title,
-        figure=fig,
-        display_mode="ortho",
-        cmap="hot",
-        colorbar=True,
-    )
-    return fig
-
-
-def plot_efield_3d_mesh(
-    envelope_msh: Path,
-    contacts_df: pd.DataFrame | None = None,
-    title: str = "TI envelope (3D)",
-) -> plt.Figure:
-    """Off-screen pyvista render of the head mesh colormapped by envelope
-    magnitude, with SEEG contacts as spheres. Returns a matplotlib Figure
-    wrapping the screenshot so the existing ReportBuilder can embed it."""
-    try:
-        import pyvista as pv
-    except ImportError as e:
-        raise ImportError(
-            "pyvista is required for 3D E-field plots. Install with `uv sync --extra efield`."
-        ) from e
-    import simnibs.mesh_io as mesh_io
-
-    pv.OFF_SCREEN = True
-    pv.global_theme.window_size = [1024, 768]
-
-    m = mesh_io.read_msh(str(envelope_msh))
-    # Convert SimNIBS mesh to pyvista UnstructuredGrid (helper in simnibs;
-    # if not available, build manually from m.elm.node_number_list and m.nodes.node_coord).
-    points = m.nodes.node_coord
-    cells = m.elm.node_number_list - 1  # SimNIBS is 1-indexed
-    # Filter to surface elements (gray matter / cortex). Tag depends on SimNIBS version;
-    # commonly 1002 = grey matter surface. Confirm against the loaded mesh.
-    grey_mask = m.elm.tag1 == 1002
-    grey_cells = cells[grey_mask]
-
-    cells_pv = np.hstack([
-        np.full((grey_cells.shape[0], 1), grey_cells.shape[1]),
-        grey_cells,
-    ]).astype(np.int64)
-    grid = pv.UnstructuredGrid(cells_pv, np.full(grey_cells.shape[0], pv.CellType.TRIANGLE), points)
-    envelope = m.field["TI_max_envelope"].value[grey_mask]
-    grid["TI"] = envelope
-
-    plotter = pv.Plotter(off_screen=True)
-    plotter.add_mesh(grid, scalars="TI", cmap="hot", opacity=0.9, smooth_shading=True)
-
-    if contacts_df is not None and {"x", "y", "z"}.issubset(contacts_df.columns):
-        valid = contacts_df.dropna(subset=["x", "y", "z"])
-        for _, c in valid.iterrows():
-            plotter.add_mesh(
-                pv.Sphere(radius=2.0, center=(c.x, c.y, c.z)),
-                color="cyan",
-                render_points_as_spheres=True,
-            )
-
-    plotter.add_text(title, font_size=12)
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-        png_path = Path(f.name)
-    plotter.screenshot(str(png_path), window_size=[1024, 768])
-    plotter.close()
-
-    fig, ax = plt.subplots(figsize=(10, 7))
-    ax.imshow(plt.imread(png_path))
-    ax.axis("off")
-    fig.tight_layout()
-    png_path.unlink(missing_ok=True)
-    return fig
-
-
-def plot_per_contact_envelope(
-    per_contact: pd.DataFrame,
-    roi_groups: dict[str, list[str]] | None = None,
-    title: str = "Predicted TI envelope per contact",
-) -> plt.Figure:
-    """Bar chart of envelope_mean per contact, color-coded by ROI."""
-    df = per_contact.copy().sort_values("envelope_mean", ascending=False)
-    color_lookup = {}
-    if roi_groups:
-        palette = plt.cm.tab20(np.linspace(0, 1, max(1, len(roi_groups))))
-        for (roi, chans), col in zip(roi_groups.items(), palette, strict=False):
-            for ch in chans:
-                color_lookup[ch] = col
-
-    colors = [color_lookup.get(n, "#888888") for n in df["name"]]
-    fig, ax = plt.subplots(figsize=(max(8, len(df) * 0.05), 4))
-    ax.bar(df["name"], df["envelope_mean"], color=colors)
-    ax.set_xticklabels(df["name"], rotation=90, fontsize=5)
-    ax.set_ylabel("E-field magnitude (V/m)")
-    ax.set_title(title)
-    fig.tight_layout()
-    return fig
-```
-
-### 6.3 New file: `tests/test_efield.py`
-
-```python
-"""Tests for the efield module. All gated on simnibs availability."""
-
-from __future__ import annotations
-import numpy as np
-import pandas as pd
-import pytest
-
-simnibs = pytest.importorskip("simnibs")
-from ti_seeg.source.efield import (
-    compute_ti_envelope,
-    sample_efield_at_contacts,
-)
-
-
-def test_get_maxTI_orthogonal_unit_fields():
-    """If E_a and E_b are orthogonal unit vectors at every element, the TI
-    envelope should be 0 everywhere (Grossman 2017)."""
-    from simnibs.utils import TI
-    n = 100
-    e_a = np.tile([1.0, 0.0, 0.0], (n, 1))
-    e_b = np.tile([0.0, 1.0, 0.0], (n, 1))
-    env = TI.get_maxTI(e_a, e_b)
-    assert np.allclose(env, 0.0, atol=1e-6)
-
-
-def test_get_maxTI_parallel_fields_equal_magnitudes():
-    """Identical parallel fields → envelope = 0 (no modulation possible)."""
-    from simnibs.utils import TI
-    n = 100
-    e = np.tile([2.0, 0.0, 0.0], (n, 1))
-    env = TI.get_maxTI(e.copy(), e.copy())
-    assert np.allclose(env, 0.0, atol=1e-6)
-
-
-def test_get_maxTI_antiparallel_fields():
-    """Anti-parallel fields → envelope = 2 * magnitude (Grossman 2017)."""
-    from simnibs.utils import TI
-    n = 50
-    e_a = np.tile([1.0, 0.0, 0.0], (n, 1))
-    e_b = np.tile([-1.0, 0.0, 0.0], (n, 1))
-    env = TI.get_maxTI(e_a, e_b)
-    assert np.allclose(env, 2.0, atol=1e-6)
-
-
-def test_sample_efield_at_contacts_skips_invalid_coords(tmp_path):
-    """Rows with NaN / 'n/a' coords should be silently skipped."""
-    import nibabel as nib
-    data = np.ones((10, 10, 10), dtype=np.float32) * 0.5
-    img = nib.Nifti1Image(data, np.eye(4))
-    nii_path = tmp_path / "envelope.nii.gz"
-    nib.save(img, str(nii_path))
-
-    electrodes = pd.DataFrame({
-        "name": ["A", "B", "C"],
-        "x": [5.0, "n/a", float("nan")],
-        "y": [5.0, 0, 0],
-        "z": [5.0, 0, 0],
-    })
-    out = sample_efield_at_contacts(nii_path, electrodes)
-    assert len(out) == 1
-    assert out["name"].iloc[0] == "A"
-    assert pytest.approx(out["envelope_mean"].iloc[0], rel=1e-3) == 0.5
-
-
-@pytest.mark.slow
-def test_simulate_smoke_on_ernie(tmp_path):
-    """Smoke test the full simulate pipeline on Ernie. Slow; mark accordingly."""
-    from ti_seeg.source.efield import (
-        mni_template_m2m_dir, simulate_carrier_pair,
-    )
-    from ti_seeg.config import EfieldCarrierPair, EfieldElectrode
-
-    m2m = mni_template_m2m_dir()
-    pair = EfieldCarrierPair(
-        anode=EfieldElectrode(name="F3"),
-        cathode=EfieldElectrode(name="P4"),
-        current_mA=1.0,
-        label="smoke",
-    )
-    msh, nii = simulate_carrier_pair(m2m, pair, tmp_path / "sim_smoke")
-    assert msh.exists()
-    assert nii.exists()
-```
-
-Add `slow` to `[tool.pytest.ini_options] markers` in `pyproject.toml`:
+Other changes:
+
+- `AnatomyConfig` gained `t2_path: str | None = None`
+  ([config.py:151](src/ti_seeg/config.py:151)).
+- `PipelineConfig.efield` field added between `connectivity` and `stats`
+  ([config.py:224](src/ti_seeg/config.py:224)).
+- `ReportConfig.include_sections` default now contains `"efield"`
+  (the list literal starts at [config.py:124](src/ti_seeg/config.py:124),
+  inside the `ReportConfig` model declared at line 122).
+
+### 3.4 Modified: [`src/ti_seeg/pipeline/run.py`](src/ti_seeg/pipeline/run.py)
+
+- `AVAILABLE_STEPS` ([run.py:44](src/ti_seeg/pipeline/run.py:44)) now lists
+  `"efield"` between `"anatomy"` and `"spectral"`.
+- `STEP_REGISTRY` ([run.py:433](src/ti_seeg/pipeline/run.py:433))
+  registers `_step_efield`.
+- `_step_efield` ([run.py:158](src/ti_seeg/pipeline/run.py:158)):
+  1. Short-circuit if `cfg.enabled is False` (default).
+  2. Validate `cfg.montage is not None`.
+  3. Resolve `simnibs_dir` via `find_simnibs_dir(cfg.simnibs_dir)`.
+  4. Resolve head model: charm if `t1_path`, else `template_m2m_dir`,
+     else raise.
+  5. Run `simulate_carrier_pair` for `pair_a` then `pair_b` (cached).
+  6. `compute_ti_envelope` → `.msh` + `.nii.gz`.
+  7. `sample_efield_at_contacts` → `ti_per_contact.tsv` (only when
+     NIfTI was produced, i.e., a reference T1 was available).
+  8. `export_envelope_surface` → `ti_envelope_surface.npz` (best-effort;
+     warns if it fails).
+  9. Three plots into `report.html` under section `"efield"`. Each plot
+     is in its own try/except so one viz failure doesn't kill the rest.
+
+### 3.5 Modified: [`src/ti_seeg/source/__init__.py`](src/ti_seeg/source/__init__.py)
+
+Re-exports the new public surface. Removed `compute_ti_field` from the
+exports.
+
+### 3.6 Modified: [`src/ti_seeg/source/localization.py`](src/ti_seeg/source/localization.py)
+
+- Module docstring updated to point at `ti_seeg.source.efield`.
+- Removed the `compute_ti_field` placeholder. `project_contact_values_to_t1`
+  is unchanged.
+
+### 3.7 Modified: [`src/ti_seeg/visualization/__init__.py`](src/ti_seeg/visualization/__init__.py)
+
+Re-exports `plot_efield_3d_mesh`, `plot_efield_orthoslice`, `plot_per_contact_envelope`.
+
+### 3.8 Modified: [`pyproject.toml`](pyproject.toml)
 
 ```toml
-markers = ["slow: long-running tests (FEM solve, segmentation)"]
-```
-
-### 6.4 Modify: `src/ti_seeg/source/__init__.py`
-
-```python
-"""Anatomical mapping + TI E-field modeling."""
-
-from .efield import (
-    build_head_model,
-    compute_ti_envelope,
-    mni_template_m2m_dir,
-    sample_efield_at_contacts,
-    simulate_carrier_pair,
-)
-from .localization import project_contact_values_to_t1
-
-__all__ = [
-    "build_head_model",
-    "compute_ti_envelope",
-    "mni_template_m2m_dir",
-    "project_contact_values_to_t1",
-    "sample_efield_at_contacts",
-    "simulate_carrier_pair",
-]
-```
-
-Remove `compute_ti_field` from exports and from
-`source/localization.py` entirely (the stub is superseded).
-
-### 6.5 Modify: `src/ti_seeg/visualization/__init__.py`
-
-Add the new exports (`plot_efield_orthoslice`, `plot_efield_3d_mesh`, `plot_per_contact_envelope`).
-
-### 6.6 Modify: `src/ti_seeg/pipeline/run.py`
-
-Append `"efield"` to `AVAILABLE_STEPS` (right after `"anatomy"`):
-
-```python
-AVAILABLE_STEPS = [
-    "preprocessing",
-    "anatomy",
-    "efield",          # NEW
-    "spectral",
-    "tfr",
-    "phase",
-    "cfc",
-    "connectivity",
-    "stats",
-    "report",
-]
-```
-
-Add the step function (mirror `_step_anatomy` shape):
-
-```python
-def _step_efield(ctx: RunContext) -> None:
-    cfg = ctx.config.efield
-    if not cfg.enabled:
-        log.info("efield.enabled=false; skipping E-field step.")
-        return
-    if cfg.montage is None:
-        raise ValueError("efield.enabled is true but efield.montage is unset.")
-
-    from ..source.efield import (
-        build_head_model, mni_template_m2m_dir,
-        simulate_carrier_pair, compute_ti_envelope, sample_efield_at_contacts,
-    )
-    from ..visualization.efield_plots import (
-        plot_efield_orthoslice, plot_efield_3d_mesh, plot_per_contact_envelope,
-    )
-
-    bids = ctx.load_bids()
-    efield_dir = ensure_dir(ctx.out_dir / "efield")
-
-    # Resolve head model.
-    if ctx.config.anatomy.t1_path:
-        m2m_parent = (
-            Path(cfg.head_model_dir) if cfg.head_model_dir
-            else efield_dir
-        )
-        m2m = build_head_model(
-            t1_path=ctx.config.anatomy.t1_path,
-            t2_path=ctx.config.anatomy.t2_path,
-            m2m_parent=m2m_parent,
-            subject_id=ctx.config.subject,
-            force=cfg.force_resegment,
-        )
-        t1_bg = m2m / "T1.nii.gz"
-    elif cfg.fallback_to_template:
-        log.warning(
-            "anatomy.t1_path is null; using bundled template head — predictions are approximate."
-        )
-        m2m = mni_template_m2m_dir()
-        t1_bg = m2m / "T1.nii.gz"
-    else:
-        raise ValueError(
-            "anatomy.t1_path is null and efield.fallback_to_template is false; "
-            "cannot run efield step."
-        )
-
-    # Run per-pair FEM solves.
-    pair_dirs = {}
-    for label, pair in [("a", cfg.montage.pair_a), ("b", cfg.montage.pair_b)]:
-        out = efield_dir / f"pair_{label}"
-        msh, nii = simulate_carrier_pair(m2m, pair, out, force=cfg.force_resegment)
-        pair_dirs[label] = (msh, nii)
-
-    # TI envelope.
-    msh_env, nii_env = compute_ti_envelope(
-        pair_dirs["a"][0], pair_dirs["b"][0],
-        out_dir=efield_dir,
-        reference_volume=t1_bg,
-    )
-
-    # Per-contact sampling.
-    per_contact = sample_efield_at_contacts(
-        nii_env, bids.electrodes, radius_mm=cfg.contact_sampling_radius_mm,
-    )
-    per_contact.to_csv(efield_dir / "ti_per_contact.tsv", sep="\t", index=False)
-
-    # Visualizations.
-    fig_ortho = plot_efield_orthoslice(nii_env, t1_bg=t1_bg, title="TI envelope")
-    ctx.report.add_figure(fig_ortho, title="TI envelope (orthogonal)", section="efield")
-
-    if cfg.visualize_3d:
-        fig_3d = plot_efield_3d_mesh(msh_env, contacts_df=bids.electrodes)
-        ctx.report.add_figure(fig_3d, title="TI envelope (3D)", section="efield")
-
-    fig_bar = plot_per_contact_envelope(per_contact, ctx.roi_groups)
-    ctx.report.add_figure(fig_bar, title="Predicted envelope per contact", section="efield")
-
-    log.info("efield step done. Per-contact rows: %d", len(per_contact))
-```
-
-Register in `STEP_REGISTRY`:
-
-```python
-STEP_REGISTRY = {
-    "preprocessing": _step_preprocessing,
-    "anatomy": _step_anatomy,
-    "efield": _step_efield,    # NEW
-    "spectral": _step_spectral,
-    ...
-}
-```
-
-### 6.7 Modify: `pyproject.toml`
-
-Add to `[project.optional-dependencies]`:
-
-```toml
+[project.optional-dependencies]
+# SimNIBS itself is not on PyPI — install via the SimNIBS standalone installer
+# and run this pipeline alongside it (the `efield` step shells out to charm /
+# simnibs_python). The `efield` extra here only pulls the pip-installable peers.
 efield = [
-    "simnibs>=4.1",
     "pyvista>=0.43",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: long-running tests (FEM solve, segmentation)",
+]
 ```
 
-Add to `[tool.pytest.ini_options]`:
+### 3.9 Modified: [`configs/analysis_defaults.yaml`](configs/analysis_defaults.yaml)
 
-```toml
-markers = ["slow: long-running tests (FEM solve, segmentation)"]
-```
+Adds an `efield:` block at the bottom (defaults) and `"efield"` to
+`report.include_sections`.
 
-Run `--exclude slow` by default? Up to you. SimNIBS-bundled smoke tests
-take 1–10 minutes; that's tolerable to run on demand but probably should
-be excluded from the default `pytest` invocation in CI.
+### 3.10 Modified: [`configs/subject_template.yaml`](configs/subject_template.yaml)
 
-### 6.8 Modify: `configs/analysis_defaults.yaml`
+`anatomy.t2_path` field + a fully-commented example `efield:` block at the
+bottom.
 
-Add at the bottom:
+### 3.10.1 Modified: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) + pre-existing lint debt
 
-```yaml
-efield:
-  enabled: false                    # opt-in; expensive
-  montage: null                     # subject configs must populate
-  head_model_dir: null              # null -> derivatives_root/efield/
-  force_resegment: false
-  visualize_3d: true
-  contact_sampling_radius_mm: 2.0
-  fallback_to_template: true
-```
+Two pre-existing CI issues had to be cleared before the stack could
+pass CI; both are folded into the bottom commit of `efield/step-1-schema`
+so the stack stands on its own without depending on PR #19:
 
-### 6.9 Modify: `configs/subject_template.yaml`
+1. **uv flag conflict.** `uv sync --all-extras --extra dev` is rejected
+   by uv ≥ 0.11 as mutually exclusive. Dropped the redundant `--extra dev`
+   — `--all-extras` already covers every entry in
+   `[project.optional-dependencies]` including `dev`.
+2. **Ruff lint debt (8 errors).** Inherited from the initial repo
+   scaffold, kept CI red on `main` since 2026-04-24. Fixed in 6 files
+   touching unsorted imports, an unused notebook import, a stringified
+   annotation, nested `if` → `and`, missing `strict=` on `zip()`, and
+   an unused loop variable. No behavior change.
 
-Append a commented example:
+The same fixes also live on the `ci/fix-ruff-lint` branch
+(PR [#19](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/19),
+closed as duplicate 2026-05-11) — re-open and target `main` directly
+if you want to clear `main`'s CI without landing the whole feature.
 
-```yaml
-# Example efield block — enable + populate before running with --steps efield.
-# Carrier pairs deliver high-frequency stim; the envelope = |f1 - f2|.
-# efield:
-#   enabled: true
-#   montage:
-#     pair_a:
-#       anode: { name: "F4", radius_mm: 12.0 }
-#       cathode: { name: "P4", radius_mm: 12.0 }
-#       current_mA: 1.0
-#       label: "carrier_2000Hz"
-#     pair_b:
-#       anode: { name: "F8", radius_mm: 12.0 }
-#       cathode: { name: "P8", radius_mm: 12.0 }
-#       current_mA: 1.0
-#       label: "carrier_2130Hz"
-#   visualize_3d: true
-#   contact_sampling_radius_mm: 2.0
-```
+### 3.11 New: [`tests/test_efield.py`](tests/test_efield.py)
 
-### 6.10 Modify: `HANDOFF.md` and `configs/subject_EMOP0649_run0X.yaml`
+14 tests:
+- 3× `sample_efield_at_contacts` (in-volume / invalid-coords / no-xyz-cols)
+- 2× `find_simnibs_dir` (explicit-override happy path / missing-install raises)
+- 3× `template_m2m_dir` (unset raises / present returns path / missing-dir raises)
+- 4× visualization (orthoslice / per-contact bar empty / per-contact bar populated / 3D mesh — the last skips when pyvista isn't installed)
+- 1× SimNIBS smoke (skipped if no install detected) — `simnibs_python --version`
+- 1× `@pytest.mark.slow` full-pipeline smoke (skipped unless `$TI_SEEG_M2M_DIR` points at a complete m2m and SimNIBS is detected)
 
-Update the §6 outstanding-work bullet about E-field to reflect that this
-module is being implemented (or remove and link to the new GitHub issue).
+Whole-suite count after this PR: **39 tests collected** (25 pre-existing
++ 14 new). Default `pytest` run: 38 pass, 1 skip (the 3D-mesh test
+skips because pyvista is in the optional `efield` extra and not in the
+project venv). With `--extra efield` installed: 39 pass.
 
-For EMOP0649 specifically, when MRI lands in the BIDS folder, the user
-will set:
+---
+
+## 4. Configuration reference
+
+Full schema with defaults (`configs/analysis_defaults.yaml` + per-subject overrides):
 
 ```yaml
 anatomy:
-  t1_path: /Users/ebrady/Projects/SEEG Processing/sub-EMOP0649/anat/sub-EMOP0649_T1w.nii.gz
-  t2_path: /Users/ebrady/Projects/SEEG Processing/sub-EMOP0649/anat/sub-EMOP0649_T2w.nii.gz
+  t1_path: null                    # /abs/path/to/T1.nii.gz; null -> use template
+  t2_path: null                    # /abs/path/to/T2.nii.gz; optional, improves charm
 
+efield:
+  enabled: false                    # opt-in; expensive
+  montage: null                     # required when enabled (see below)
+  head_model_dir: null              # parent dir for m2m_<sub>/; null -> derivatives/efield/
+  force_resegment: false            # re-run charm AND re-run FEM (clears caches)
+  visualize_3d: true                # produce ti_envelope_surface.npz + 3D plot
+  contact_sampling_radius_mm: 2.0
+  fallback_to_template: true        # when t1_path is null
+  simnibs_dir: null                 # null -> auto-discover via $SIMNIBSDIR / ~/Applications/SimNIBS-*
+  template_m2m_dir: null            # required when fallback_to_template + t1_path null
+```
+
+Populated montage example (10–20 names; can also use `position: [x, y, z]`):
+
+```yaml
 efield:
   enabled: true
   montage:
     pair_a:
-      anode: { name: "<TBD>", radius_mm: 12.0 }
-      cathode: { name: "<TBD>", radius_mm: 12.0 }
+      anode:   { name: "F4", radius_mm: 12.0 }
+      cathode: { name: "P4", radius_mm: 12.0 }
       current_mA: 1.0
       label: "carrier_2000Hz"
     pair_b:
-      anode: { name: "<TBD>", radius_mm: 12.0 }
-      cathode: { name: "<TBD>", radius_mm: 12.0 }
+      anode:   { name: "F8", radius_mm: 12.0 }
+      cathode: { name: "P8", radius_mm: 12.0 }
       current_mA: 1.0
       label: "carrier_2130Hz"
+  contact_sampling_radius_mm: 2.0
 ```
 
-The `<TBD>` placeholders are filled from the user's stim protocol notes.
+Note: `radius_mm` becomes the SimNIBS pad's half-width (the wrapper passes
+`[radius_mm * 2, radius_mm * 2]` as the ellipse `dimensions`, with
+4 mm `thickness` — these match SimNIBS tDCS-pad defaults).
 
 ---
 
-## 7. Implementation order (recommended)
+## 5. How to run the step end-to-end
 
-Land changes in small, independently mergeable commits:
+### 5.1 Prereqs
 
-1. **Schema + extra dep group.** `pyproject.toml` + `config.py` + `analysis_defaults.yaml`. Run `uv sync` (no `--extra efield`) and `uv run pytest` to confirm 25/25 still green and the schema parses.
-2. **Stub the new step.** Add `_step_efield` registered but raising `NotImplementedError` if called; add `"efield"` to `AVAILABLE_STEPS`. CLI's `validate` now accepts efield blocks; `run --steps efield` raises clearly.
-3. **Implement `efield.py` core functions.** Stubs first: `build_head_model`, `mni_template_m2m_dir`, `simulate_carrier_pair`, `compute_ti_envelope`, `sample_efield_at_contacts`. Add `tests/test_efield.py` with the synthetic `get_maxTI` and `sample_efield_at_contacts` tests (don't run the slow Ernie smoke yet).
-4. **Wire `_step_efield` to call them.** End-to-end on Ernie + a fake `electrodes.tsv` with NaN coords; verify the step produces `ti_envelope.nii.gz` and writes a (empty) `ti_per_contact.tsv`.
-5. **Visualization.** `efield_plots.py` + integration in `_step_efield`. Verify `report.html` opens with all three new figures.
-6. **Slow smoke test.** Mark `test_simulate_smoke_on_ernie` `@pytest.mark.slow`; run manually `uv run pytest -m slow`.
-7. **Real-MRI dry run.** When EMOP0649's T1/T2 land, configure `anatomy.t1_path` and run `--steps anatomy,efield,report`. First run: ~1–3 hr. Inspect report.
+- SimNIBS 4.6 installed at `~/Applications/SimNIBS-*` (or set
+  `efield.simnibs_dir` / `$SIMNIBSDIR`).
+- A subject T1 NIfTI on disk (T2 optional but recommended).
+- `uv sync` has succeeded against the project. For 3D plots:
+  `uv sync --extra efield` (adds pyvista).
 
-Open one GitHub issue per landing step (stack them with checkboxes in a tracking issue) so progress is visible on the repo.
+### 5.2 First-time charm (segmentation)
 
----
+`charm` is **slow** (1–3 hr). It is the cached step — re-runs of the
+pipeline reuse the m2m. You can either:
 
-## 8. Verification / acceptance criteria
+- **Let the pipeline run charm.** Set `anatomy.t1_path` (and `t2_path`)
+  and run `ti-seeg run --steps efield`. The first invocation does
+  charm + FEM + envelope + sampling end-to-end; the second is fast.
+- **Run charm out-of-band first.** This is useful for the `@slow` test
+  fixture or when iterating on stim configs:
 
-The module is "done" for v1 when **all** of these hold:
+  ```bash
+  mkdir -p ~/efield_smoke && cd ~/efield_smoke
+  /Users/ebrady/Applications/SimNIBS-4.6/bin/charm ernie \
+      /Users/ebrady/Projects/TI_Toolbox/code/ti-toolbox/TI-Toolbox/sub-ernie/anat/sub-ernie_T1w.nii
+  # produces ~/efield_smoke/m2m_ernie/
+  ```
 
-1. `uv sync` (no extra) succeeds; `uv run pytest` reports 25 + new
-   `test_efield.py` non-slow tests passing; SimNIBS-gated tests skip
-   cleanly with a printed reason.
-2. `uv sync --extra efield` succeeds; `uv run pytest -m slow` runs the
-   Ernie smoke test (~5–10 min) and passes.
-3. `uv run ti-seeg validate configs/subject_EMOP0649_run01.yaml` succeeds
-   both with `efield.enabled: false` and with a populated montage block.
-4. `uv run ti-seeg run --config <subj-with-no-T1>.yaml --steps anatomy,efield,report`
-   uses the Ernie fallback and produces:
-   - `<derivatives>/efield/ti_envelope.nii.gz`
-   - `<derivatives>/efield/ti_envelope.msh`
-   - `<derivatives>/efield/ti_per_contact.tsv` (may be empty if all coords are `n/a`)
-   - `<derivatives>/figures/efield_*.png` × 3
-   - A clear warning in the log: `Using Ernie template head — anatomy is NOT this subject's. Per-contact predictions are normalized/approximate.`
-5. With a real T1+T2 (subject in BIDS), the same command yields a report
-   where the envelope hotspot is visibly near the stim target (e.g.,
-   amygdala for EMOP0649) and the per-contact bar chart ranks
-   target-shank contacts at the top.
-6. Re-running the pipeline reads the cached m2m and per-pair sims; total
-   wall time drops from hours to minutes.
-7. Disabling the extra (`uv sync` without `--extra efield`) and running
-   `--steps efield` raises a clean `ImportError` pointing at the install
-   command — *not* a confusing tracebacks deep inside SimNIBS.
+  Then point the pipeline at the existing m2m via
+  `efield.head_model_dir: ~/efield_smoke` (its parent), or use it as the
+  `efield.template_m2m_dir` for a fallback subject.
 
----
+### 5.3 Full pipeline run
 
-## 9. Known gotchas
+```bash
+uv run ti-seeg run --config configs/subject_<id>.yaml --steps efield,report
+```
 
-1. **SimNIBS `charm` writes outputs in the CWD.** Always wrap calls in
-   the `_chdir` context manager pointing at the desired parent directory.
-2. **Mesh tags are version-dependent.** Grey-matter element tag is `1002`
-   in SimNIBS 4 but verify against the loaded mesh
-   (`np.unique(m.elm.tag1)`) before hard-coding. Wrong tag → empty mesh
-   in the 3D plot.
-3. **Coordinate frames must match.** SimNIBS works in subject MRI/scanner
-   space (RAS). When the user adds SEEG coordinates from external software
-   (FreeSurfer, BrainSight, Leksell), confirm they're in the same frame
-   as the T1 used by `charm`. If they're in CT space or atlas space,
-   apply a transform before sampling.
-4. **`SimNIBSDIR` is set on simnibs install.** `simnibs.SIMNIBSDIR` points
-   at the install root. The bundled Ernie may live in
-   `resources/examples/ernie/m2m_ernie/` (4.1) or
-   `examples/ernie/m2m_ernie/` (older 4.x). Probe both and bail with a
-   helpful error if neither exists.
-5. **Off-screen pyvista on macOS.** Works via VTK's `vtkOSPRayPass` /
-   `vtkOpenGLRenderWindow`. If the Plotter hangs, set `pv.OFF_SCREEN =
-   True` *before* importing any other VTK-backed module and verify
-   `os.environ.get("DISPLAY")` is unset / set appropriately. On
-   headless Linux you may need `xvfb-run`.
-6. **Large meshes are slow to render.** Filter to grey-matter surface
-   before sending to pyvista (the example code does this with
-   `tag1 == 1002`). Otherwise the screenshot can take >30 s and produce
-   an unreadable interior view.
-7. **`mesh_to_nifti` resolution.** SimNIBS rasterizes the mesh field onto
-   the reference volume's voxel grid. Default is the reference T1 resolution
-   (typically 1 mm isotropic), which is fine; if the reference is
-   anisotropic the per-contact sampling needs to use voxel spacing
-   correctly (the code in §5.4 does).
-8. **Stim-electrode placement for TI is non-trivial.** The user must
-   supply real stim sites — these are typically *different* electrodes
-   from the recording montage. The 19 EEG channels in EMOP0649's
-   `channels.tsv` are recording electrodes, not the TI stim sites.
-9. **Bilateral montages.** Some TI protocols use 4 stim electrodes
-   (2 carriers × 2 electrodes each) where the two pairs straddle the
-   target. Other protocols use shared cathodes etc. The current schema
-   supports the canonical 2-pair-of-2 layout; if the protocol differs,
-   extend `EfieldMontage` rather than working around the schema.
-10. **DWI is in BIDS but unused.** SimNIBS supports DTI-derived
-    anisotropic conductivities (`tdcs.anisotropy_type = "vn"`) which
-    can subtly improve fields in white matter. Out of scope for v1; open
-    a follow-up issue if fidelity demands it.
+Or run the full pipeline (efield is between anatomy and spectral):
+
+```bash
+uv run ti-seeg run --config configs/subject_<id>.yaml
+```
+
+Outputs land under `<derivatives_root>/sub-<id>/…/efield/` (see §2 diagram).
+
+### 5.4 Slow integration test
+
+```bash
+TI_SEEG_M2M_DIR=~/efield_smoke/m2m_ernie uv run pytest -m slow tests/test_efield.py
+```
+
+Wall time: ~5–10 minutes per FEM solve; the test runs two solves plus
+the envelope and sampling.
 
 ---
 
-## 10. Out of scope (follow-up issues)
+## 6. Outputs and what they mean
 
-- **Validation analysis:** systematic comparison of predicted envelope
-  against measured PLV-to-envelope across contacts. This is a separate
-  scientific question and warrants its own notebook.
-- **Interactive 3D viewer in the report:** `pyvista.Plotter.export_html`
-  produces a self-contained HTML widget; embedding it in `mne.Report` is
-  tractable but adds JS asset management overhead. Defer.
-- **Multi-pair / multi-frequency optimization:** searching the montage
-  space to maximize predicted target field. This is a research project,
-  not pipeline plumbing.
-- **DTI-anisotropic conductivities:** the user has DWI but the standard
-  charm path uses isotropic. Switching adds 1–2 hours of preprocessing per
-  subject (DTI prep + tensor estimation).
-- **Hippocampal subfield atlas (ASHS):** finer-grained ROI coupling than
-  shank-prefix. Tracked in `HANDOFF.md` v2 backlog.
+| Artifact | Generated by | Used by |
+|---|---|---|
+| `m2m_<sub>/` | `build_head_model` | All downstream steps; cached across runs. |
+| `pair_<a\|b>/<sub>_TDCS_1_scalar.msh` | `simulate_carrier_pair` | `compute_ti_envelope` reads `field['E'].value` (V/m, per element). |
+| `pair_<a\|b>/subject_volumes/<sub>_TDCS_1_scalar_E.nii.gz` | `simulate_carrier_pair` | Optional inspection; not used by later steps. |
+| `ti_envelope.msh` | `compute_ti_envelope` | `export_envelope_surface` reads it. |
+| `ti_envelope.nii.gz` | `compute_ti_envelope` (only if `reference_volume` supplied) | `sample_efield_at_contacts`, `plot_efield_orthoslice`. |
+| `ti_envelope_surface.npz` | `export_envelope_surface` | `plot_efield_3d_mesh` in our venv. Keys: `points (N,3)`, `cells (M,3)`, `scalars (M,)`. |
+| `ti_per_contact.tsv` | `sample_efield_at_contacts` | `plot_per_contact_envelope`; downstream stats notebooks. |
+| `figures/efield_*.png` | `_step_efield` viz hooks | Embedded in `report.html` under section `efield`. |
+
+`ti_per_contact.tsv` columns: `name`, `envelope_mean`, `envelope_max`,
+`n_voxels`. Coordinates that were NaN, `"n/a"`, or fell outside the
+volume are silently skipped with one aggregated warning.
+
+---
+
+## 7. Tests
+
+```bash
+uv run pytest -q                            # default: 38 pass, 1 skip
+uv run pytest -m slow tests/test_efield.py  # slow smoke (needs $TI_SEEG_M2M_DIR)
+uv run pytest tests/test_efield.py -v       # just the efield suite
+```
+
+Skip reasons you might see:
+- `pyvista not installed` — install `--extra efield` to exercise the 3D
+  mesh test.
+- `SimNIBS not installed` — set `efield.simnibs_dir` or install SimNIBS.
+- `TI_SEEG_M2M_DIR not set` — slow smoke needs a precomputed m2m.
+- `head mesh missing: …` — slow smoke found the env var but the m2m
+  folder doesn't have a finished `<sub>.msh`.
+
+---
+
+## 8. Known limitations and gotchas
+
+### 8.1 Real ones from the implementation
+
+1. **No bundled Ernie head.** SimNIBS 4.6 dropped the bundled m2m_ernie
+   from `resources/`. The fallback path requires the user to supply
+   `efield.template_m2m_dir`. The original handoff's `mni_template_m2m_dir()`
+   helper was replaced with `template_m2m_dir(path)`.
+2. **Subprocess overhead.** Each SimNIBS-side call takes ~100–500 ms
+   just for interpreter startup. Negligible compared to FEM/charm wall
+   time, but it adds up for tight loops. Don't call `compute_ti_envelope`
+   in a hot loop without batching.
+3. **Anisotropic conductivities not exposed.** The SimNIBS session is
+   hardcoded to `tdcs.anisotropy_type = "scalar"`. Anisotropic (`"vn"`)
+   would require DTI prep. Tracked as follow-up.
+4. **Mesh tag for grey matter is hardcoded to 1002.** This is correct
+   for SimNIBS 4.x but must be re-checked if upgrading. `export_envelope_surface`
+   takes a `grey_matter_tag` arg as the escape hatch.
+5. **Subprocess errors lose Python tracebacks.** When a SimNIBS-side
+   inline script fails, the wrapper raises `RuntimeError` with the
+   captured stdout+stderr. Helpful but not a Python traceback. Set
+   the project logger to DEBUG to see the inline scripts being executed.
+6. **`force_resegment=True` only forces charm + the FEM cache check.**
+   It does **not** wipe `m2m_<sub>/` first; charm itself decides
+   whether to re-run via `--forcerun`. If the m2m is corrupt, delete
+   it manually.
+7. **Headless pyvista on macOS.** `pv.OFF_SCREEN = True` and
+   `PYVISTA_OFF_SCREEN=true` are set before instantiating the Plotter.
+   On headless Linux you may need `xvfb-run` around the pipeline
+   invocation.
+8. **`compute_ti_envelope` uses `m_a` as the output mesh.** The
+   envelope field is added back to mesh A and saved. Topologically
+   identical to mesh B (same head model), but if you ever cross-mix
+   pairs from different m2ms this will silently misalign — guard at
+   call sites.
+9. **`sample_efield_at_contacts` uses nearest-voxel indexing.** It
+   doesn't trilinear-interpolate, then takes the mean inside a sphere of
+   `radius_mm`. Acceptable at 1 mm isotropic; if the reference T1 is
+   anisotropic the radius is converted to voxels per axis (see
+   `r_vox = np.ceil(radius_mm / spacing)`).
+10. **Coordinate frames must match.** The wrapper assumes `electrodes.tsv`
+    `x/y/z` are in the same MRI space as the T1 used by `charm`. If they
+    came from CT or atlas space, transform them first.
+11. **Bare `except Exception` in the viz dispatch.** `_step_efield`
+    wraps each plot call in `try/except Exception` so a single failure
+    doesn't take down the rest. Pragmatic but coarse — could be tightened
+    once we know which exceptions are routine.
+12. **`pyproject.toml` still uses the deprecated `[tool.uv] dev-dependencies`
+    field.** Pre-existing in this repo, not introduced by these PRs;
+    triggers a uv warning on every invocation. Migrate to
+    `[dependency-groups] dev = …`.
+
+### 8.2 Charm-CWD trap (still relevant)
+
+`charm` writes `m2m_<subID>/` into the current working directory. The
+wrapper handles this via `subprocess.run(..., cwd=str(m2m_parent))`, but
+if you ever invoke charm yourself outside the pipeline, pre-`cd` to the
+desired parent directory.
+
+### 8.3 EEG-position resolution
+
+When the montage uses 10-20 names (e.g., `name: "F4"`), SimNIBS resolves
+them via the m2m's `eeg_positions/EEG10-10_UI_Jurak_2007.csv`. If the
+m2m wasn't built with EEG positions (older charm settings), set explicit
+`position: [x, y, z]` instead.
+
+---
+
+## 9. Outstanding work
+
+### 9.1 Step 7.7 — Real-MRI dry run on EMOP0649
+
+This is what the next session should pick up.
+
+Prereqs:
+- EMOP0649 T1 (and ideally T2) lands in BIDS at the user's path. As of
+  2026-05-08, paths in [`HANDOFF.md`](HANDOFF.md) v2 indicate the BIDS
+  prep is done but MRI is still pending on a bigger machine.
+- The user's stim-protocol notes — needed to fill the `<TBD>` electrode
+  names in the EMOP0649 montage. The expected format is something like
+  F3/F4 anodes + P3/P4 cathodes for 2000/2130 Hz carriers, but **don't
+  guess** — confirm with the user.
+
+Concrete steps (file paths assume current convention):
+
+1. Add to `configs/subject_EMOP0649_run01.yaml` (and `_run02.yaml`):
+   ```yaml
+   anatomy:
+     t1_path: /Users/ebrady/Projects/SEEG\ Processing/sub-EMOP0649/anat/sub-EMOP0649_T1w.nii.gz
+     t2_path: /Users/ebrady/Projects/SEEG\ Processing/sub-EMOP0649/anat/sub-EMOP0649_T2w.nii.gz
+   efield:
+     enabled: true
+     montage:
+       pair_a:
+         anode:   { name: "<TBD>", radius_mm: 12.0 }
+         cathode: { name: "<TBD>", radius_mm: 12.0 }
+         current_mA: 1.0
+         label: "carrier_2000Hz"
+       pair_b:
+         anode:   { name: "<TBD>", radius_mm: 12.0 }
+         cathode: { name: "<TBD>", radius_mm: 12.0 }
+         current_mA: 1.0
+         label: "carrier_2130Hz"
+   ```
+2. Optionally pre-run charm (1–3 hr) to decouple from the analysis run:
+   ```bash
+   cd <derivatives>/sub-EMOP0649/…/efield/   # or any parent dir
+   /Users/ebrady/Applications/SimNIBS-4.6/bin/charm EMOP0649 \
+       <T1 path> <T2 path>
+   ```
+3. Run the pipeline:
+   ```bash
+   uv run ti-seeg run --config configs/subject_EMOP0649_run01.yaml \
+                       --steps anatomy,efield,report
+   ```
+4. Inspect `derivatives/.../report.html`. Acceptance:
+   - Envelope hotspot is visibly near the stim target (amygdala for
+     EMOP0649 inhibition block).
+   - Per-contact bar chart ranks target-shank contacts at the top.
+5. Update [`HANDOFF.md`](HANDOFF.md) §6 with findings and any tuning
+   notes.
+
+### 9.2 Follow-ups (file as separate issues)
+
+- **Validation analysis** — predicted envelope vs. measured PLV-to-envelope
+  per contact. Notebook, not pipeline plumbing.
+- **Anisotropic conductivities** — wire `tdcs.anisotropy_type = "vn"`
+  through, with a config knob and DTI prep step.
+- **Interactive 3D viewer in the report** — `pyvista.Plotter.export_html`
+  produces a self-contained widget; embedding in `mne.Report` is feasible
+  but adds JS asset management.
+- **Multi-pair / multi-frequency optimization** — search over montage
+  space to maximize predicted target field. Research project, not
+  pipeline.
+- **Hippocampal subfield atlas (ASHS)** — finer-grained ROI coupling
+  than shank-prefix. Tracked in `HANDOFF.md` v2 backlog.
+- **Mypy + ruff sweep over efield.py and efield_plots.py** — no type
+  errors expected, but the bare `except Exception` in `_step_efield`
+  could use a tighter exception list.
+- **Unit-test `_run_simnibs_script` error handling** — currently only
+  exercised end-to-end; a contained test that injects a deliberately
+  failing script would tighten coverage.
+- **Migrate `[tool.uv] dev-dependencies` → `[dependency-groups] dev`** —
+  silences the uv deprecation warning on every invocation.
+- **Per-step CLI script for efield** — the repo has
+  `scripts/run_<step>.py` thin wrappers for every other step (anatomy,
+  spectral, tfr, phase, connectivity, stats, full). A
+  `scripts/run_efield.py` (≈20 LOC, mirroring `run_anatomy.py`) would
+  match the convention. Skipped here to keep PR scope tight; the
+  supported entry point is `uv run ti-seeg run --steps efield …`.
+- **Tighten `_step_efield` viz-dispatch except clause** — the bare
+  `except Exception` was pragmatic for unknown failure modes during
+  development; once we know which exceptions actually fire (likely
+  `ImportError` for pyvista, `RuntimeError` from subprocess, plus a
+  few matplotlib edge cases), narrow it.
+
+---
+
+## 10. Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `FileNotFoundError: Could not locate a SimNIBS install` | No install at standard locations and `efield.simnibs_dir` unset | Set `efield.simnibs_dir: /path/to/SimNIBS-4.x` or `export SIMNIBSDIR=…` |
+| `RuntimeError: simnibs_python script failed (exit 1)` with "ModuleNotFoundError: simnibs.utils.TI" | SimNIBS < 4.0 (the API isn't there) | Upgrade SimNIBS to 4.1+ |
+| `RuntimeError: charm did not produce …<sub>.msh` | charm crashed mid-run | Check `m2m_<sub>/charm_log.html`, often a registration failure on bad MRI orientation. Try `--forceqform` (already passed) or fix the MRI |
+| Empty 3D plot, white screen | Wrong grey-matter tag for the SimNIBS version | Inspect with `simnibs_python -c "from simnibs import mesh_io; m=mesh_io.read_msh('ti_envelope.msh'); import numpy as np; print(np.unique(m.elm.tag1))"` and pass `grey_matter_tag=…` to `export_envelope_surface` |
+| `ImportError: pyvista is required for 3D E-field plots` | Optional dep not installed | `uv sync --extra efield` |
+| Slow smoke skipped with "head mesh missing" | `$TI_SEEG_M2M_DIR` points at incomplete m2m | Run `charm` to completion first |
+| Pipeline hangs at "Running FEM solve" with no output | SimNIBS is solving (5–10 min for cortex-only); not a hang | Watch `<out_dir>/simnibs_simulation/` for files appearing |
 
 ---
 
 ## 11. References
 
+- Original planning handoff (this file's previous version): see git
+  history before commit `b6f6e8a`.
+- Tracking issue: [#11](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/issues/11).
+- PRs: [#12](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/12)
+  (schema), [#13](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/13)
+  (stub), [#14](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/14)
+  (core wrapper), [#15](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/15)
+  (wire), [#16](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/16)
+  (viz), [#17](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/17)
+  (slow smoke), [#18](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/18)
+  (this doc). Sibling [#19](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/pull/19)
+  (closed) carried the same CI/lint fixes as a standalone main-targeted
+  PR before they were folded into step-1.
+- CI fix commit:
+  [3fde783](https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/commit/3fde783)
+  (uv flag conflict on `efield/step-1-schema`).
 - Grossman et al. (2017). "Noninvasive Deep Brain Stimulation via
   Temporally Interfering Electric Fields." *Cell* 169(6):1029–1041.
-- Saturnino et al. (2019). "SimNIBS 2.1: A Comprehensive Pipeline for
-  Individualized Electric Field Modelling for Transcranial Brain
-  Stimulation." *Brain and Human Body Modeling*, Springer.
 - SimNIBS 4 documentation: <https://simnibs.github.io/simnibs/>
-- SimNIBS TI utilities API:
-  `simnibs.utils.TI.get_maxTI`, `simnibs.utils.TI.get_dirTI`.
+- SimNIBS install guide:
+  <https://simnibs.github.io/simnibs/build/html/installation/installation.html>
 - pyvista off-screen rendering:
   <https://docs.pyvista.org/version/stable/user-guide/jupyter/>
 - nilearn `plot_stat_map`:
@@ -1157,13 +688,35 @@ The module is "done" for v1 when **all** of these hold:
 
 ---
 
-## 12. First prompt for the implementing session
+## 12. First prompt for the next session
 
-> "Picking up the TI E-field module on TI_SEEG_Analysis_Pipeline. Read
-> `HANDOFF.md` (project state) and `HANDOFF_EFIELD.md` (this module's plan)
-> at the repo root. Implement the module in the order listed in §7 of
-> HANDOFF_EFIELD.md, opening one PR per step. Land §7.1 (schema +
-> extra dep group + stub step) first; ping me before starting §7.3
-> (the heavy SimNIBS wrapper). Do not run any FEM solves on the dev
-> machine without confirming RAM/disk headroom — the segmentation alone
-> writes ~2 GB per subject."
+> "Picking up the TI E-field module on TI_SEEG_Analysis_Pipeline.
+> Read `HANDOFF.md` (project state) and this file
+> (`HANDOFF_EFIELD.md`) at the repo root.
+>
+> **Stack state.** PRs #12–#17 implement steps 7.1–7.6 and are stacked
+> off `main`; PR #18 is this handoff doc on top of #17. PR #19 (sibling
+> standalone lint-debt fix) was closed as duplicate — the same fixes
+> live on the bottom of the efield stack. PR #12 (the only stack PR
+> that runs CI, since the others target stack branches not `main`) is
+> green on ubuntu-latest + macos-latest / py3.11 as of 2026-05-11.
+> **Merge order:** squash-merge in numeric order
+> #12 → #13 → #14 → #15 → #16 → #17 → #18.
+>
+> **Next concrete work.** Step 7.7 in §9.1 — the EMOP0649 dry run.
+> Blocked on (a) the user supplying real stim-electrode names for the
+> `<TBD>` placeholders and (b) the EMOP0649 T1+T2 landing in BIDS.
+> **Do not kick off `charm` on a real subject without the user's
+> go-ahead** — it is 1–3 hr of compute and ~2 GB of disk per subject.
+>
+> **Useful dev fixture.** A complete Ernie m2m. The user's two existing
+> m2m_* folders under `…/TI_Toolbox/derivatives/SimNIBS/sub-{ernie,MNI152}/`
+> are **partial** — neither has a `<sub>.msh` head mesh. Running charm
+> fresh on
+> `/Users/ebrady/Projects/TI_Toolbox/code/ti-toolbox/TI-Toolbox/sub-ernie/anat/sub-ernie_T1w.nii`
+> produces a usable m2m for the `@slow` smoke (see §5.4).
+>
+> **Defaults to lean on.** `efield.enabled=false` keeps the rest of
+> the pipeline a no-op for this step. SimNIBS auto-discovery checks
+> `~/Applications/SimNIBS-*` and `/Applications/SimNIBS-*` — the
+> maintainer's install is at `/Users/ebrady/Applications/SimNIBS-4.6/`."
