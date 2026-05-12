@@ -108,6 +108,8 @@ efield:
   visualize_3d: true
   contact_sampling_radius_mm: 2.0
   fallback_to_template: true        # use SimNIBS Ernie head when t1_path is null
+  simnibs_dir: null                 # /path/to/SimNIBS-4.x; null -> auto-discover via $SIMNIBSDIR or ~/Applications/SimNIBS-*
+  template_m2m_dir: null            # /path/to/m2m_ernie used when t1_path is null and fallback_to_template=true
 
 report:
   enabled: true
