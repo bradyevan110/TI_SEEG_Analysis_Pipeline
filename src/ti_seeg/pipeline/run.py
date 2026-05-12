@@ -156,18 +156,96 @@ def _step_anatomy(ctx: RunContext) -> None:
 
 
 def _step_efield(ctx: RunContext) -> None:
-    """TI E-field modeling via SimNIBS. Stubbed pending implementation in
-    HANDOFF_EFIELD.md §7.3."""
+    """TI E-field modeling: charm + per-pair FEM + Grossman envelope + per-contact sampling."""
     cfg = ctx.config.efield
     if not cfg.enabled:
         log.info("efield.enabled=false; skipping E-field step.")
         return
     if cfg.montage is None:
         raise ValueError("efield.enabled is true but efield.montage is unset.")
-    raise NotImplementedError(
-        "The efield step is registered but not yet implemented. "
-        "Tracking issue: https://github.com/bradyevan110/TI_SEEG_Analysis_Pipeline/issues/11"
+
+    from ..source.efield import (
+        build_head_model,
+        compute_ti_envelope,
+        export_envelope_surface,
+        find_simnibs_dir,
+        sample_efield_at_contacts,
+        simulate_carrier_pair,
+        template_m2m_dir,
     )
+
+    bids = ctx.load_bids()
+    efield_dir = ensure_dir(ctx.out_dir / "efield")
+    simnibs_dir = find_simnibs_dir(cfg.simnibs_dir)
+    log.info("Using SimNIBS at %s", simnibs_dir)
+
+    # Resolve head model.
+    if ctx.config.anatomy.t1_path:
+        m2m_parent = Path(cfg.head_model_dir) if cfg.head_model_dir else efield_dir
+        m2m = build_head_model(
+            t1_path=ctx.config.anatomy.t1_path,
+            t2_path=ctx.config.anatomy.t2_path,
+            m2m_parent=m2m_parent,
+            subject_id=ctx.config.subject,
+            simnibs_dir=simnibs_dir,
+            force=cfg.force_resegment,
+        )
+    elif cfg.fallback_to_template:
+        log.warning("anatomy.t1_path is null; using template head — predictions are approximate.")
+        m2m = template_m2m_dir(cfg.template_m2m_dir)
+    else:
+        raise ValueError(
+            "anatomy.t1_path is null and efield.fallback_to_template is false; "
+            "cannot run efield step."
+        )
+    t1_bg = m2m / "T1.nii.gz"
+
+    # Run per-pair FEM solves (cached).
+    pair_outputs: dict[str, tuple[Path, Path]] = {}
+    for label, pair in [("a", cfg.montage.pair_a), ("b", cfg.montage.pair_b)]:
+        out = efield_dir / f"pair_{label}"
+        msh, nii = simulate_carrier_pair(
+            m2m_dir=m2m,
+            pair=pair,
+            out_dir=out,
+            simnibs_dir=simnibs_dir,
+            force=cfg.force_resegment,
+        )
+        pair_outputs[label] = (msh, nii)
+
+    # TI envelope.
+    msh_env, nii_env = compute_ti_envelope(
+        field_a_msh=pair_outputs["a"][0],
+        field_b_msh=pair_outputs["b"][0],
+        out_dir=efield_dir,
+        simnibs_dir=simnibs_dir,
+        reference_volume=t1_bg if t1_bg.exists() else None,
+    )
+
+    # Per-contact sampling (NIfTI required).
+    if nii_env.exists():
+        per_contact = sample_efield_at_contacts(
+            envelope_nifti=nii_env,
+            electrodes=bids.electrodes,
+            radius_mm=cfg.contact_sampling_radius_mm,
+        )
+        per_contact.to_csv(efield_dir / "ti_per_contact.tsv", sep="\t", index=False)
+        log.info("efield: sampled %d contacts", len(per_contact))
+    else:
+        log.warning("No envelope NIfTI produced (no reference T1); skipping per-contact sampling.")
+
+    # Portable surface export for the visualization step.
+    if cfg.visualize_3d:
+        try:
+            export_envelope_surface(
+                envelope_msh=msh_env,
+                out_path=efield_dir / "ti_envelope_surface.npz",
+                simnibs_dir=simnibs_dir,
+            )
+        except RuntimeError as e:
+            log.warning("Skipped surface export (will fall back to ortho-slice in viz): %s", e)
+
+    log.info("efield step done. Outputs in %s", efield_dir)
 
 
 def _step_spectral(ctx: RunContext) -> None:
