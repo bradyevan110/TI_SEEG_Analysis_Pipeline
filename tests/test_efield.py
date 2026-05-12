@@ -137,3 +137,60 @@ def test_simnibs_python_is_executable() -> None:
     )
     assert proc.returncode == 0, proc.stderr
     assert "Python" in proc.stdout or "Python" in proc.stderr
+
+
+# ---------------------------------------------------------------------------
+# Visualization (no SimNIBS required — reads the portable .npz / .nii.gz)
+# ---------------------------------------------------------------------------
+
+
+def test_plot_efield_orthoslice_returns_figure(envelope_nifti: Path) -> None:
+    from ti_seeg.visualization.efield_plots import plot_efield_orthoslice
+
+    fig = plot_efield_orthoslice(envelope_nifti, t1_bg=None, title="t")
+    assert fig is not None
+    fig.clf()
+
+
+def test_plot_per_contact_envelope_handles_empty() -> None:
+    from ti_seeg.visualization.efield_plots import plot_per_contact_envelope
+
+    fig = plot_per_contact_envelope(pd.DataFrame())
+    assert fig is not None
+    fig.clf()
+
+
+def test_plot_per_contact_envelope_with_data() -> None:
+    from ti_seeg.visualization.efield_plots import plot_per_contact_envelope
+
+    df = pd.DataFrame(
+        {
+            "name": ["A1", "A2", "B1"],
+            "envelope_mean": [0.5, 0.3, 0.7],
+            "envelope_max": [0.6, 0.4, 0.8],
+            "n_voxels": [10, 10, 10],
+        }
+    )
+    fig = plot_per_contact_envelope(df, roi_groups={"hippo": ["A1"], "amyg": ["B1"]})
+    assert fig is not None
+    fig.clf()
+
+
+def test_plot_efield_3d_mesh_or_skip(tmp_path: Path) -> None:
+    """If pyvista is installed, render a tiny synthetic mesh; otherwise skip."""
+    pv = pytest.importorskip("pyvista")
+    from ti_seeg.visualization.efield_plots import plot_efield_3d_mesh
+
+    points = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        dtype=np.float32,
+    )
+    cells = np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]], dtype=np.int64)
+    scalars = np.array([0.1, 0.5, 0.8, 0.3], dtype=np.float32)
+    npz = tmp_path / "surface.npz"
+    np.savez(npz, points=points, cells=cells, scalars=scalars)
+
+    pv.OFF_SCREEN = True
+    fig = plot_efield_3d_mesh(npz, contacts_df=None, title="t")
+    assert fig is not None
+    fig.clf()
