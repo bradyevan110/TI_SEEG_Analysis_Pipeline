@@ -177,8 +177,17 @@ def test_plot_per_contact_envelope_with_data() -> None:
 
 
 def test_plot_efield_3d_mesh_or_skip(tmp_path: Path) -> None:
-    """If pyvista is installed, render a tiny synthetic mesh; otherwise skip."""
+    """If pyvista is installed, render a tiny synthetic mesh; otherwise skip.
+
+    Skips on headless Linux (no DISPLAY) — VTK segfaults trying to acquire
+    an OpenGL context. The maintainer can wrap pytest in `xvfb-run` to
+    exercise this path; see HANDOFF_EFIELD.md §8.1.7.
+    """
+    import sys
+
     pv = pytest.importorskip("pyvista")
+    if sys.platform == "linux" and not os.environ.get("DISPLAY"):
+        pytest.skip("headless Linux: VTK cannot acquire a GL context")
     from ti_seeg.visualization.efield_plots import plot_efield_3d_mesh
 
     points = np.array(
