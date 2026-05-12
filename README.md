@@ -2,6 +2,8 @@
 
 A modular SEEG analysis pipeline for characterizing the spatiotemporal effects of **temporal interference (TI) stimulation** targeted at subcortical temporal-lobe structures (hippocampus, amygdala, temporal pole, etc.). Built on [MNE-Python](https://mne.tools) and [MNE-BIDS](https://mne.tools/mne-bids/).
 
+> **End users:** start with the **[User Guide](USER_GUIDE.md)** — it walks through installation, data layout, configuration, running the pipeline, reading outputs, the E-field step, performance tips, and troubleshooting.
+
 ## Scope (v1)
 
 - Single-subject analyses.
