@@ -43,12 +43,15 @@ def compute_psd(
         bandwidth=cfg.bandwidth_hz if cfg.method == "multitaper" else None,
         verbose="WARNING",
     )
-    data = spectrum.get_data()  # (n_epochs, n_channels, n_freqs)
+    data = spectrum.get_data()  # (n_epochs, n_channels, n_freqs); excludes bads
     psd = data.mean(axis=0)  # average over epochs => (n_channels, n_freqs)
+    # spectrum.ch_names includes bads but get_data() drops them — keep ch_names aligned.
+    bads = set(spectrum.info["bads"])
+    good_ch_names = [n for n in spectrum.ch_names if n not in bads]
     return PSDResult(
         freqs=np.asarray(spectrum.freqs),
         psd=np.asarray(psd),
-        ch_names=list(spectrum.ch_names),
+        ch_names=good_ch_names,
         condition=condition,
     )
 
