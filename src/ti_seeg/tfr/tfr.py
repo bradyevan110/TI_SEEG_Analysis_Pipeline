@@ -71,6 +71,21 @@ def tfr_log_ratio_baseline(
     tfr: mne.time_frequency.AverageTFR,
     config: PipelineConfig,
 ) -> mne.time_frequency.AverageTFR:
-    """Apply baseline normalization (in-place via MNE) using config.tfr.baseline."""
+    """Apply baseline normalization (in-place via MNE) using config.tfr.baseline.
+
+    Clips the requested baseline window to the available epoch times. If no
+    valid pre-zero overlap remains, skips correction with a warning rather
+    than raising — some conditions (e.g. stim_test) have narrower windows.
+    """
     bcfg = config.tfr.baseline
-    return tfr.apply_baseline(baseline=(bcfg.tmin, bcfg.tmax), mode=bcfg.mode)
+    epoch_tmin = float(tfr.times[0])
+    epoch_tmax = float(tfr.times[-1])
+    tmin = max(bcfg.tmin, epoch_tmin)
+    tmax = min(bcfg.tmax, epoch_tmax)
+    if tmin >= tmax:
+        log.warning(
+            "Skipping TFR baseline correction: requested (%s, %s) does not overlap epoch [%s, %s].",
+            bcfg.tmin, bcfg.tmax, epoch_tmin, epoch_tmax,
+        )
+        return tfr
+    return tfr.apply_baseline(baseline=(tmin, tmax), mode=bcfg.mode)
