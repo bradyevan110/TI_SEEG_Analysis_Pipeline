@@ -17,6 +17,12 @@ def test_anat_label_column_detected() -> None:
     assert anat_label_column(df) == "anatomical_label"
 
 
+def test_anat_label_column_recognizes_short_anat() -> None:
+    # HANDOFF v2 §2 documents the column as "anat"; keep it a first-class candidate.
+    df = pd.DataFrame({"name": ["A1"], "anat": ["Hippocampus"]})
+    assert anat_label_column(df) == "anat"
+
+
 def test_channel_to_anat_label_with_bipolar_fallback() -> None:
     df = pd.DataFrame(
         {
