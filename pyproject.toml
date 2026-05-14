@@ -33,6 +33,7 @@ dependencies = [
     "nibabel>=5.0",
     "pybids>=0.16",
     "h5py>=3.9",
+    "h5io>=0.2",
     "pyyaml>=6.0",
     "pydantic>=2.5",
     "tqdm>=4.65",

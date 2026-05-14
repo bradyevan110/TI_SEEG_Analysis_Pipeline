@@ -13,6 +13,7 @@ log = get_logger("anatomy.contacts")
 _ANAT_COLUMN_CANDIDATES = [
     "anatomical_label",
     "anat_label",
+    "anat",
     "region",
     "Region",
     "destrieux",
